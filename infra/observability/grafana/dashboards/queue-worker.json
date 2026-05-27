@@ -1,0 +1,106 @@
+{
+  "title": "Queue & Worker",
+  "uid": "queue-worker",
+  "version": 2,
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queue Depth",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_queue_depth",
+          "legendFormat": "Depth"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Enqueued Total",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_queue_enqueued_total",
+          "legendFormat": "Enqueued"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Processed Total",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_queue_processed_total",
+          "legendFormat": "Processed"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Rejected Total",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_queue_rejected_total",
+          "legendFormat": "Rejected"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Worker Active Tasks",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 4, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_worker_active_tasks",
+          "legendFormat": "Active"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Throughput (tasks/min)",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 4, "w": 18, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(traceruntime_queue_processed_total[1m]) * 60",
+          "legendFormat": "Processed/min"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(traceruntime_queue_rejected_total[1m]) * 60",
+          "legendFormat": "Rejected/min"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "AI Tasks (from Python runtime)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(ai_requests_total[1m]) * 60",
+          "legendFormat": "{{execution_status}} / {{task_type}}"
+        }
+      ]
+    }
+  ]
+}
