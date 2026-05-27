@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # Nota: host.docker.internal funciona em Docker Desktop (Windows/Mac).
+  # Em Linux puro, substituir por 172.17.0.1 ou IP da interface docker0.
+  - job_name: ai-runtime
+    static_configs:
+      - targets: ['host.docker.internal:8001']
+    metrics_path: /metrics
+
+  - job_name: go-api
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+    metrics_path: /metrics
