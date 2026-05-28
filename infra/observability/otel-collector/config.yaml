@@ -37,6 +37,13 @@ exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
     namespace: traceruntime
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    default_labels_enabled:
+      exporter: false
+      job: true
+      instance: true
+      level: true
 
 service:
   extensions: [health_check]
@@ -49,3 +56,7 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [loki]

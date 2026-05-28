@@ -1,0 +1,9 @@
+server.exe
+server
+*.test
+*.out
+.git
+.env
+.env.*
+.idea/
+.vscode/

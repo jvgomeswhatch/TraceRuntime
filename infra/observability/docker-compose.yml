@@ -1,21 +1,21 @@
 version: "3.9"
 
 networks:
-  observability:
-    driver: bridge
+  traceruntime:
+    external: true
 
 services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.104.0
     command: ["--config=/etc/otel-collector/config.yaml"]
     volumes:
-      - ./otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
+      - ./infra/observability/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
     ports:
       - "4317:4317"   # OTLP gRPC — apps mandam spans aqui
       - "4318:4318"   # OTLP HTTP
       - "8889:8889"   # Prometheus scrape do collector
       - "13133:13133" # Health check endpoint
-    networks: [observability]
+    networks: [traceruntime]
     depends_on: [tempo]
     restart: unless-stopped
     mem_limit: 384m
@@ -29,10 +29,10 @@ services:
       - "--storage.tsdb.retention.size=400MB"
       - "--web.enable-lifecycle"
     volumes:
-      - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./infra/observability/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
     ports:
       - "9090:9090"
-    networks: [observability]
+    networks: [traceruntime]
     depends_on: [otel-collector]
     restart: unless-stopped
     mem_limit: 512m
@@ -42,13 +42,13 @@ services:
     image: grafana/tempo:2.5.0
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
-      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - ./infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
     ports:
       - "3200:3200"   # HTTP API + query (acesso externo ao host)
     expose:
       - "4317"        # OTLP gRPC — acessível apenas na rede interna Docker (collector → tempo)
       - "4318"        # OTLP HTTP — interno
-    networks: [observability]
+    networks: [traceruntime]
     restart: unless-stopped
     mem_limit: 512m
     cpus: "0.5"
@@ -57,10 +57,10 @@ services:
     image: grafana/loki:3.0.0
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
-      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - ./infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
     ports:
       - "3100:3100"
-    networks: [observability]
+    networks: [traceruntime]
     restart: unless-stopped
     mem_limit: 512m
     cpus: "0.5"
@@ -74,12 +74,12 @@ services:
       - GF_USERS_DEFAULT_THEME=dark
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
     volumes:
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./infra/observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/observability/grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
       - "3000:3000"
-    networks: [observability]
+    networks: [traceruntime]
     depends_on: [prometheus, tempo, loki]
     restart: unless-stopped
     mem_limit: 256m
