@@ -12,7 +12,7 @@ import (
 	"github.com/runtime-platform/services/api/internal/queue"
 )
 
-func NewRouter(broker *event.Broker, q *queue.Queue) http.Handler {
+func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -23,17 +23,18 @@ func NewRouter(broker *event.Broker, q *queue.Queue) http.Handler {
 	r.Get("/health", Health)
 	r.Get("/metrics", NewMetricsHandler(broker, q).ServeHTTP)
 	r.Get("/events", NewSSEHandler(broker).ServeHTTP)
-	r.Post("/tasks", NewTaskHandler(broker, q).ServeHTTP)
+	r.Post("/tasks", NewTaskHandler(broker, publisher).ServeHTTP)
 	r.Options("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+	r.Post("/internal/events", NewEventsHandler(broker).ServeHTTP)
 
 	return r
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3001")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		next.ServeHTTP(w, r)

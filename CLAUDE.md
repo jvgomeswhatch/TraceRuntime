@@ -36,6 +36,7 @@ Rate limiting / validação / hardening?     → security
 Teste de integração / contrato / chaos?    → testing
 Auto-healing / watchdog / heartbeat?       → autohealing
 Chaos experiment (Phase 9)?               → chaos
+GitHub Actions / pipeline CI/CD / testes integração CI? → cicd
 ```
 
 ---

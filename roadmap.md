@@ -194,6 +194,25 @@ Goal:
 
 ---
 
+# Phase 7.5 — Task Persistence (PostgreSQL + S3)
+
+Integrate PostgreSQL into the worker runtime:
+
+- worker writes task state transitions to PostgreSQL (`pending → processing → completed/failed`)
+- S3 key recorded in PostgreSQL after artifact write — no artifact exists without a database record
+- PostgreSQL becomes the system of record for task state and artifact metadata
+- S3 remains the artifact store for large or binary outputs (PDFs, images, audio)
+
+Goal:
+
+- tasks survive restarts — state is durable, not in-memory
+- full traceability: task → trace → artifact → S3 key
+- operational queries become possible: "which tasks failed?", "which tasks generated artifacts?"
+
+Note: This phase resolves the known gap from Phase 6 where task state lives exclusively in memory/SQS and S3 has no corresponding PostgreSQL record.
+
+---
+
 # Phase 8 — Auto-Healing
 
 Implement:

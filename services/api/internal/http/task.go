@@ -1,11 +1,15 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 
@@ -16,6 +20,65 @@ import (
 )
 
 var taskTracer = otel.Tracer("traceruntime-api/task")
+
+// Publisher enqueues tasks — implemented by QueuePublisher (inmemory) or SQSPublisher.
+type Publisher interface {
+	Publish(ctx context.Context, taskID, traceID, traceparent, payload string) (bool, error)
+}
+
+type SQSPublisher struct {
+	client   *sqssdk.Client
+	queueURL string
+}
+
+func NewSQSPublisher(client *sqssdk.Client, queueURL string) *SQSPublisher {
+	return &SQSPublisher{client: client, queueURL: queueURL}
+}
+
+func (p *SQSPublisher) Publish(ctx context.Context, taskID, traceID, traceparent, payload string) (bool, error) {
+	body, err := json.Marshal(map[string]string{
+		"task_id":     taskID,
+		"trace_id":    traceID,
+		"traceparent": traceparent,
+		"payload":     payload,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	_, err = p.client.SendMessage(ctx, &sqssdk.SendMessageInput{
+		QueueUrl:    aws.String(p.queueURL),
+		MessageBody: aws.String(string(body)),
+		MessageAttributes: map[string]sqstypes.MessageAttributeValue{
+			"traceparent": {
+				DataType:    aws.String("String"),
+				StringValue: aws.String(traceparent),
+			},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+type QueuePublisher struct {
+	q *queue.Queue
+}
+
+func NewQueuePublisher(q *queue.Queue) *QueuePublisher {
+	return &QueuePublisher{q: q}
+}
+
+func (p *QueuePublisher) Publish(_ context.Context, taskID, traceID, traceparent, payload string) (bool, error) {
+	ok := p.q.Enqueue(queue.Task{
+		ID:          taskID,
+		TraceID:     traceID,
+		Traceparent: traceparent,
+		Payload:     payload,
+	})
+	return ok, nil
+}
 
 type taskRequest struct {
 	Input string `json:"input"`
@@ -38,19 +101,18 @@ type sseEvent struct {
 }
 
 type TaskHandler struct {
-	broker *event.Broker
-	queue  *queue.Queue
+	broker    *event.Broker
+	publisher Publisher
 }
 
-func NewTaskHandler(broker *event.Broker, q *queue.Queue) *TaskHandler {
-	return &TaskHandler{broker: broker, queue: q}
+func NewTaskHandler(broker *event.Broker, publisher Publisher) *TaskHandler {
+	return &TaskHandler{broker: broker, publisher: publisher}
 }
 
 func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, span := taskTracer.Start(r.Context(), "task.create")
 	defer span.End()
 
-	// child span: validate
 	_, validateSpan := taskTracer.Start(ctx, "task.validate")
 	var req taskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -65,7 +127,6 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	validateSpan.End()
 
-	// Extract real trace context from the OTEL span.
 	spanCtx := span.SpanContext()
 	traceID := spanCtx.TraceID().String()
 	traceparent := fmt.Sprintf("00-%s-%s-01",
@@ -75,28 +136,24 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	taskID := uuid.New().String()
 
-	// child span: enqueue
 	_, enqueueSpan := taskTracer.Start(ctx, "task.enqueue")
-	t := queue.Task{
-		ID:          taskID,
-		TraceID:     traceID,
-		Traceparent: traceparent,
-		Payload:     req.Input,
+	ok, err := h.publisher.Publish(ctx, taskID, traceID, traceparent, req.Input)
+	if err != nil {
+		enqueueSpan.End()
+		telemetry.Error(ctx, "failed to publish task", "task_id", taskID, "error", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
 	}
-	if !h.queue.Enqueue(t) {
+	if !ok {
 		enqueueSpan.End()
 		metrics.QueueRejected.Inc()
-		telemetry.Warn(ctx, "task rejected — queue full",
-			"task_id", taskID,
-			"queue_depth", h.queue.Depth(),
-		)
+		telemetry.Warn(ctx, "task rejected — queue full", "task_id", taskID)
 		jsonError(w, "queue_full", http.StatusServiceUnavailable)
 		return
 	}
 	metrics.QueueEnqueued.Inc()
 	enqueueSpan.End()
 
-	// Publish task.created SSE event so the frontend sees it immediately.
 	_, publishSpan := taskTracer.Start(ctx, "task.publish")
 	ev := sseEvent{
 		EventID:     uuid.New().String(),
@@ -117,10 +174,7 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.broker.Publish(evBytes)
 	publishSpan.End()
 
-	telemetry.Info(ctx, "task created",
-		"task_id", taskID,
-		"event_type", "task.created",
-	)
+	telemetry.Info(ctx, "task created", "task_id", taskID, "event_type", "task.created")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

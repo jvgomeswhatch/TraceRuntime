@@ -15,7 +15,7 @@ import (
 
 func TestTask_CreatesTask(t *testing.T) {
 	broker := event.NewBroker()
-	h := apihttp.NewTaskHandler(broker, queue.NewQueue(128))
+	h := apihttp.NewTaskHandler(broker, apihttp.NewQueuePublisher(queue.NewQueue(128)))
 
 	req := httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{"input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -55,7 +55,7 @@ func TestTask_PublishesSSEEvent(t *testing.T) {
 	ch := broker.Subscribe("test")
 	defer broker.Unsubscribe("test")
 
-	h := apihttp.NewTaskHandler(broker, queue.NewQueue(128))
+	h := apihttp.NewTaskHandler(broker, apihttp.NewQueuePublisher(queue.NewQueue(128)))
 
 	req := httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{"input":"publish test"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -78,7 +78,7 @@ func TestTask_PublishesSSEEvent(t *testing.T) {
 
 func TestTask_RejectsEmptyInput(t *testing.T) {
 	broker := event.NewBroker()
-	h := apihttp.NewTaskHandler(broker, queue.NewQueue(128))
+	h := apihttp.NewTaskHandler(broker, apihttp.NewQueuePublisher(queue.NewQueue(128)))
 
 	for _, body := range []string{`{}`, `{"input":""}`} {
 		req := httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(body))
@@ -95,7 +95,7 @@ func TestTask_RejectsEmptyInput(t *testing.T) {
 
 func TestTask_ContentType(t *testing.T) {
 	broker := event.NewBroker()
-	h := apihttp.NewTaskHandler(broker, queue.NewQueue(128))
+	h := apihttp.NewTaskHandler(broker, apihttp.NewQueuePublisher(queue.NewQueue(128)))
 
 	req := httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{"input":"x"}`))
 	req.Header.Set("Content-Type", "application/json")

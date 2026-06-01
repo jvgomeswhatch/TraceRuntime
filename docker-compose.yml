@@ -2,9 +2,32 @@ version: "3.9"
 
 networks:
   traceruntime:
-    driver: bridge
+    external: true
 
 services:
+  localstack:
+    image: localstack/localstack:3.4
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs,s3
+      - DEFAULT_REGION=us-east-1
+      - LOCALSTACK_HOST=localstack
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [traceruntime]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    init: true
+    mem_limit: 512m
+    cpus: "0.5"
+    profiles: [core, full, no-ai]
+
   api:
     build:
       context: ./services/api
@@ -14,10 +37,16 @@ services:
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
       - AI_RUNTIME_URL=http://ai-runtime:8000
+      - QUEUE_BACKEND=sqs
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
     networks: [traceruntime]
     depends_on:
-      otel-collector:
-        condition: service_started
+      localstack:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
       interval: 30s
@@ -29,6 +58,44 @@ services:
     stop_grace_period: 10s
     mem_limit: 256m
     cpus: "0.5"
+    profiles: [core, full, no-ai]
+
+  worker:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
+      - SQS_DLQ_URL=http://localstack:4566/000000000000/traceruntime-tasks-dlq
+      - S3_BUCKET=traceruntime-outputs
+      - API_INTERNAL_URL=http://api:8082
+      - AI_RUNTIME_URL=http://ai-runtime:8000
+      - AI_RUNTIME_ENABLED=false
+    ports:
+      - "9091:9091"
+    networks: [traceruntime]
+    depends_on:
+      localstack:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    mem_limit: 128m
+    cpus: "0.5"
+    profiles: [core, full, no-ai]
 
   ai-runtime:
     build:
@@ -42,9 +109,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [traceruntime]
-    depends_on:
-      otel-collector:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -56,6 +120,7 @@ services:
     stop_grace_period: 10s
     mem_limit: 768m
     cpus: "1.0"
+    profiles: [full]
 
   frontend:
     build:
@@ -79,3 +144,4 @@ services:
     init: true
     mem_limit: 256m
     cpus: "0.5"
+    profiles: [core, full, no-ai]

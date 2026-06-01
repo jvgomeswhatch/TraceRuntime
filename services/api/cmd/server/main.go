@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/runtime-platform/services/api/internal/ai"
 	"github.com/runtime-platform/services/api/internal/event"
 	apihttp "github.com/runtime-platform/services/api/internal/http"
@@ -37,36 +39,52 @@ func main() {
 		}
 	}()
 
-	queueCapacity := envInt("QUEUE_CAPACITY", 128)
-
 	broker := event.NewBroker()
-	q := queue.NewQueue(queueCapacity)
-
-	metrics.MustRegisterAll(func() float64 { return float64(q.Depth()) })
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	aiRuntimeURL := os.Getenv("AI_RUNTIME_URL")
-	if aiRuntimeURL == "" {
-		aiRuntimeURL = "http://localhost:8001"
-	}
-	aiClient := ai.NewClient(aiRuntimeURL, 120*time.Second)
-	w := worker.New(q, broker, aiClient)
-	go w.Run(ctx)
+	aiRuntimeURL := envString("AI_RUNTIME_URL", "http://localhost:8001")
 
-	router := apihttp.NewRouter(broker, q)
+	var publisher apihttp.Publisher
+	var q *queue.Queue
+
+	queueBackend := envString("QUEUE_BACKEND", "inmemory")
+	switch queueBackend {
+	case "sqs":
+		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
+		if err != nil {
+			slog.Error("failed to load AWS config", "error", err)
+			os.Exit(1)
+		}
+		sqsClient := sqssdk.NewFromConfig(awsCfg)
+		sqsQueueURL := mustEnv("SQS_QUEUE_URL")
+		publisher = apihttp.NewSQSPublisher(sqsClient, sqsQueueURL)
+		q = queue.NewQueue(1)
+		metrics.MustRegisterAll(func() float64 { return 0 })
+		slog.Info("queue backend: sqs", "queue_url", sqsQueueURL)
+	default:
+		q = queue.NewQueue(envInt("QUEUE_CAPACITY", 128))
+		metrics.MustRegisterAll(func() float64 { return float64(q.Depth()) })
+		publisher = apihttp.NewQueuePublisher(q)
+		aiClient := ai.NewClient(aiRuntimeURL, 120*time.Second)
+		w := worker.New(q, broker, aiClient)
+		go w.Run(ctx)
+		slog.Info("queue backend: inmemory")
+	}
+
+	router := apihttp.NewRouter(broker, publisher, q)
 
 	port := envString("PORT", "8082")
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 0, // SSE requires no write timeout
+		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	slog.Info("api server starting", "addr", ":"+port, "queue_capacity", queueCapacity, "ai_runtime_url", aiRuntimeURL)
+	slog.Info("api server starting", "addr", ":"+port, "queue_backend", queueBackend, "ai_runtime_url", aiRuntimeURL)
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -99,4 +117,13 @@ func envString(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		slog.Error("required env var not set", "key", key)
+		os.Exit(1)
+	}
+	return v
 }
