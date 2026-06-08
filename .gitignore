@@ -31,8 +31,9 @@ out/
 .env
 .env.local
 
-# Terraform
-infra/terraform/.terraform/
-infra/terraform/.terraform.lock.hcl
-infra/terraform/terraform.tfstate
-infra/terraform/terraform.tfstate.backup
+# Terraform — state and ephemeral dirs are not committed
+# .terraform.lock.hcl IS committed (pins provider versions for reproducibility)
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
