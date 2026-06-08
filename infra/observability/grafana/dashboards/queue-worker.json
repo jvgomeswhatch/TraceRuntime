@@ -1,99 +1,223 @@
 {
   "title": "Queue & Worker",
   "uid": "queue-worker",
-  "version": 2,
+  "version": 3,
   "schemaVersion": 39,
   "refresh": "5s",
   "time": { "from": "now-30m", "to": "now" },
   "panels": [
     {
       "id": 1,
-      "title": "Queue Depth",
+      "title": "Queue Depth (SQS)",
       "type": "stat",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area" },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "traceruntime_queue_depth",
+          "expr": "traceruntime_worker_queue_depth",
           "legendFormat": "Depth"
         }
       ]
     },
     {
       "id": 2,
-      "title": "Enqueued Total",
+      "title": "In-Flight Messages",
       "type": "stat",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area" },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "traceruntime_queue_enqueued_total",
-          "legendFormat": "Enqueued"
+          "expr": "traceruntime_worker_queue_inflight",
+          "legendFormat": "In-Flight"
         }
       ]
     },
     {
       "id": 3,
-      "title": "Processed Total",
+      "title": "DLQ Depth",
       "type": "stat",
       "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]
+        }
+      },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "traceruntime_queue_processed_total",
-          "legendFormat": "Processed"
+          "expr": "traceruntime_worker_dlq_depth",
+          "legendFormat": "DLQ"
         }
       ]
     },
     {
       "id": 4,
-      "title": "Rejected Total",
+      "title": "Tasks Processed Total",
       "type": "stat",
       "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "area" },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "traceruntime_queue_rejected_total",
-          "legendFormat": "Rejected"
+          "expr": "traceruntime_worker_tasks_processed_total",
+          "legendFormat": "Processed"
         }
       ]
     },
     {
       "id": 5,
-      "title": "Worker Active Tasks",
+      "title": "Tasks Failed Total",
       "type": "stat",
       "gridPos": { "x": 0, "y": 4, "w": 6, "h": 4 },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 },
+            { "color": "red", "value": 5 }
+          ]
+        }
+      },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "traceruntime_worker_active_tasks",
-          "legendFormat": "Active"
+          "expr": "traceruntime_worker_tasks_failed_total",
+          "legendFormat": "Failed"
         }
       ]
     },
     {
       "id": 6,
-      "title": "Throughput (tasks/min)",
-      "type": "timeseries",
-      "gridPos": { "x": 6, "y": 4, "w": 18, "h": 4 },
+      "title": "SSE Publish Errors",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 4, "w": 6, "h": 4 },
+      "options": {
+        "colorMode": "background",
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 }
+          ]
+        }
+      },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(traceruntime_queue_processed_total[1m]) * 60",
-          "legendFormat": "Processed/min"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(traceruntime_queue_rejected_total[1m]) * 60",
-          "legendFormat": "Rejected/min"
+          "expr": "traceruntime_worker_sse_publish_errors_total",
+          "legendFormat": "SSE Errors"
         }
       ]
     },
     {
       "id": 7,
-      "title": "AI Tasks (from Python runtime)",
+      "title": "Throughput (tasks/min)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 4 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(traceruntime_worker_tasks_processed_total[1m]) * 60",
+          "legendFormat": "Processed/min"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(traceruntime_worker_tasks_failed_total[1m]) * 60",
+          "legendFormat": "Failed/min"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Queue Depth over Time",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 6 },
+      "fieldConfig": {
+        "defaults": { "custom": { "fillOpacity": 10 } }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_worker_queue_depth",
+          "legendFormat": "Queue Depth"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_worker_queue_inflight",
+          "legendFormat": "In-Flight"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "traceruntime_worker_dlq_depth",
+          "legendFormat": "DLQ"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Task Duration p50 / p95 / p99 (s)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 6 },
+      "fieldConfig": {
+        "defaults": { "custom": { "fillOpacity": 5 }, "unit": "s" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, rate(traceruntime_worker_task_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, rate(traceruntime_worker_task_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, rate(traceruntime_worker_task_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "SQS Receive Duration p50 / p95 (s)",
+      "description": "Tempo gasto no long poll. Valor esperado ~20s quando fila vazia, ~0s quando há mensagens.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 6 },
+      "fieldConfig": {
+        "defaults": { "custom": { "fillOpacity": 5 }, "unit": "s" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, rate(traceruntime_worker_sqs_receive_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, rate(traceruntime_worker_sqs_receive_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "AI Tasks (ai-runtime — perfil full)",
+      "description": "Só populado quando AI_RUNTIME_ENABLED=true.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 6 },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },

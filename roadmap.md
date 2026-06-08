@@ -234,6 +234,39 @@ Goal:
 
 ---
 
+# Phase 8.5 — Operational Tuning & Capacity
+
+Prerequisite: Ollama running, Qwen/DeepSeek loaded, full pipeline operational.
+
+This phase resolves the three items left open from Phase 6B validation, which could not be characterized with the mock path (sub-millisecond processing, no real backlog):
+
+Measure:
+
+- p50/p95/p99 real inference latency (`traceruntime_worker_task_duration_seconds`)
+- queue backlog behavior under sustained load
+- memory consumption of models under real inference
+- `ApproximateNumberOfMessagesNotVisible` behavior during actual processing
+
+Calibrate:
+
+- `VisibilityTimeout` — current value 150s is provisional; must be > p95 inference time + 30s margin
+- `QUEUE_MAX_DEPTH` admission control threshold — define from observed saturation point, not speculation
+- Worker concurrency ceiling — characterize degradation before adding workers
+
+Document:
+
+- baseline numbers for all metrics as reference for Phase 9 chaos experiments
+- identified bottlenecks and resource ceiling
+
+Goal:
+
+- all operational parameters are derived from real measurement, not defaults
+- numbers from this phase serve as the SLO baseline for Phase 9
+
+Note: measurements obtained with mock AI (Phase 6B) are archived as reference but are not valid operational baselines.
+
+---
+
 # Phase 9 — Chaos Testing
 
 Test:

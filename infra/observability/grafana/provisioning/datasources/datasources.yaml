@@ -16,10 +16,12 @@ datasources:
     url: http://tempo:3200
     editable: false
     jsonData:
-      # tracesToLogsV2 desabilitado nesta fase: Loki não ingere logs ainda.
-      # Habilitar na Phase 5 quando logs estiverem disponíveis no Loki.
-      # tracesToLogsV2:
-      #   datasourceUid: loki
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        filterByTraceID: true
+        filterBySpanID: false
       serviceMap:
         datasourceUid: prometheus
       nodeGraph:
@@ -31,5 +33,3 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
-    # Placeholder-only nesta fase: sem ingestão, sem Promtail.
-    # Datasource configurado para Phase 5. Não habilitar tracesToLogs no Tempo enquanto não houver dados.
