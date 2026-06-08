@@ -1,45 +1,58 @@
 #!/usr/bin/env bash
+# bootstrap.sh — validate that Terraform-provisioned infrastructure exists.
+# Does NOT create resources. Run 'make infra-apply' first.
 set -euo pipefail
 
-ENDPOINT="${AWS_ENDPOINT_URL:-http://localhost:4566}"
+ENDPOINT="${LOCALSTACK_ENDPOINT:-http://localhost:4566}"
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-ACCOUNT="000000000000"
 
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
 
-echo "==> Creating DLQ..."
-aws --endpoint-url="$ENDPOINT" --region="$REGION" sqs create-queue \
-  --queue-name traceruntime-tasks-dlq \
-  --attributes '{"MessageRetentionPeriod":"86400"}' \
-  --output json
+FAILED=0
 
-DLQ_ARN="arn:aws:sqs:${REGION}:${ACCOUNT}:traceruntime-tasks-dlq"
+check_queue() {
+  local name="$1"
+  printf "==> Verifying %s... " "$name"
+  if aws --endpoint-url="$ENDPOINT" --region="$REGION" \
+       sqs get-queue-url --queue-name "$name" \
+       --output text 2>/dev/null | grep -q "$name"; then
+    echo "ok"
+  else
+    echo "MISSING"
+    echo "ERROR: Run 'make infra-apply' to provision infrastructure before starting the environment."
+    FAILED=1
+  fi
+}
 
-echo "==> Creating main task queue..."
-aws --endpoint-url="$ENDPOINT" --region="$REGION" sqs create-queue \
-  --queue-name traceruntime-tasks \
-  --attributes "{
-    \"VisibilityTimeout\": \"150\",
-    \"MessageRetentionPeriod\": \"86400\",
-    \"ReceiveMessageWaitTimeSeconds\": \"20\",
-    \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"${DLQ_ARN}\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"
-  }" \
-  --output json
+check_bucket() {
+  local name="$1"
+  printf "==> Verifying s3://%s... " "$name"
+  if aws --endpoint-url="$ENDPOINT" --region="$REGION" \
+       s3api head-bucket --bucket "$name" > /dev/null 2>&1; then
+    echo "ok"
+  else
+    echo "MISSING"
+    echo "ERROR: Run 'make infra-apply' to provision infrastructure before starting the environment."
+    FAILED=1
+  fi
+}
 
-echo "==> Creating S3 bucket..."
-aws --endpoint-url="$ENDPOINT" --region="$REGION" s3api create-bucket \
-  --bucket traceruntime-outputs \
-  --output json
+echo "==> Checking LocalStack is reachable..."
+if ! curl -sf "${ENDPOINT}/_localstack/health" > /dev/null 2>&1; then
+  echo "ERROR: LocalStack is not reachable at ${ENDPOINT}"
+  echo "Start it with: docker compose --profile no-ai up -d localstack"
+  exit 1
+fi
+echo "    ok"
 
-echo "==> Verifying queues..."
-aws --endpoint-url="$ENDPOINT" --region="$REGION" sqs list-queues --output json
+check_queue "traceruntime-tasks-dlq"
+check_queue "traceruntime-tasks"
+check_bucket "traceruntime-outputs"
 
-echo "==> Verifying buckets..."
-aws --endpoint-url="$ENDPOINT" --region="$REGION" s3api list-buckets --output json
+if [ "$FAILED" -eq 1 ]; then
+  exit 1
+fi
 
 echo ""
-echo "Bootstrap complete."
-echo "  Main queue : http://${ENDPOINT#http://}/${ACCOUNT}/traceruntime-tasks"
-echo "  DLQ        : http://${ENDPOINT#http://}/${ACCOUNT}/traceruntime-tasks-dlq"
-echo "  S3 bucket  : traceruntime-outputs"
+echo "Bootstrap validation complete."
