@@ -13,6 +13,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/runtime-platform/services/api/internal/ai"
+	"github.com/runtime-platform/services/api/internal/db"
 	"github.com/runtime-platform/services/api/internal/event"
 	apihttp "github.com/runtime-platform/services/api/internal/http"
 	"github.com/runtime-platform/services/api/internal/metrics"
@@ -38,6 +39,13 @@ func main() {
 			slog.Error("tracer shutdown error", "error", err)
 		}
 	}()
+
+	database, err := db.Open(context.Background(), mustEnv("DATABASE_URL"))
+	if err != nil {
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
 
 	broker := event.NewBroker()
 
@@ -73,7 +81,7 @@ func main() {
 		slog.Info("queue backend: inmemory")
 	}
 
-	router := apihttp.NewRouter(broker, publisher, q)
+	router := apihttp.NewRouter(broker, publisher, q, database)
 
 	port := envString("PORT", "8082")
 	srv := &http.Server{

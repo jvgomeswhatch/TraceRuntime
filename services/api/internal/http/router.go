@@ -8,11 +8,12 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/runtime-platform/services/api/internal/db"
 	"github.com/runtime-platform/services/api/internal/event"
 	"github.com/runtime-platform/services/api/internal/queue"
 )
 
-func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue) http.Handler {
+func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, database *db.DB) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -23,7 +24,7 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue) http.H
 	r.Get("/health", Health)
 	r.Get("/metrics", NewMetricsHandler(broker, q).ServeHTTP)
 	r.Get("/events", NewSSEHandler(broker).ServeHTTP)
-	r.Post("/tasks", NewTaskHandler(broker, publisher).ServeHTTP)
+	r.Post("/tasks", NewTaskHandler(broker, publisher, database).ServeHTTP)
 	r.Options("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})

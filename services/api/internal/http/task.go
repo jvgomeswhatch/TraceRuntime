@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 
+	"github.com/runtime-platform/services/api/internal/db"
 	"github.com/runtime-platform/services/api/internal/event"
 	"github.com/runtime-platform/services/api/internal/metrics"
 	"github.com/runtime-platform/services/api/internal/queue"
@@ -103,10 +104,11 @@ type sseEvent struct {
 type TaskHandler struct {
 	broker    *event.Broker
 	publisher Publisher
+	db        *db.DB
 }
 
-func NewTaskHandler(broker *event.Broker, publisher Publisher) *TaskHandler {
-	return &TaskHandler{broker: broker, publisher: publisher}
+func NewTaskHandler(broker *event.Broker, publisher Publisher, database *db.DB) *TaskHandler {
+	return &TaskHandler{broker: broker, publisher: publisher, db: database}
 }
 
 func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +137,14 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 
 	taskID := uuid.New().String()
+
+	if h.db != nil {
+		if err := h.db.InsertTask(ctx, taskID, traceID); err != nil {
+			telemetry.Error(ctx, "failed to insert task", "task_id", taskID, "error", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	_, enqueueSpan := taskTracer.Start(ctx, "task.enqueue")
 	ok, err := h.publisher.Publish(ctx, taskID, traceID, traceparent, req.Input)
