@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/runtime-platform/services/worker/internal/db"
 	"github.com/runtime-platform/services/worker/internal/metrics"
 	"github.com/runtime-platform/services/worker/internal/processor"
 	"github.com/runtime-platform/services/worker/internal/telemetry"
@@ -39,6 +40,13 @@ func main() {
 		}
 	}()
 
+	database, err := db.Open(context.Background(), mustEnv("DATABASE_URL"))
+	if err != nil {
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
 	queueURL := mustEnv("SQS_QUEUE_URL")
 	dlqURL := mustEnv("SQS_DLQ_URL")
 
@@ -59,7 +67,7 @@ func main() {
 		APIInternalURL: mustEnv("API_INTERNAL_URL"),
 		AIRuntimeURL:   os.Getenv("AI_RUNTIME_URL"),
 		AIEnabled:      processor.EnvBool("AI_RUNTIME_ENABLED", false),
-	}, sqsClient, s3Client)
+	}, sqsClient, s3Client, database)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

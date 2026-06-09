@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/runtime-platform/services/worker/internal/db"
 	"github.com/runtime-platform/services/worker/internal/metrics"
 )
 
@@ -32,18 +33,20 @@ type Config struct {
 }
 
 type Processor struct {
-	cfg      Config
-	sqs      *sqssdk.Client
-	s3       *s3.Client
+	cfg        Config
+	sqs        *sqssdk.Client
+	s3         *s3.Client
 	httpClient *http.Client
+	db         *db.DB
 }
 
-func New(cfg Config, sqsClient *sqssdk.Client, s3Client *s3.Client) *Processor {
+func New(cfg Config, sqsClient *sqssdk.Client, s3Client *s3.Client, database *db.DB) *Processor {
 	return &Processor{
-		cfg:      cfg,
-		sqs:      sqsClient,
-		s3:       s3Client,
+		cfg:        cfg,
+		sqs:        sqsClient,
+		s3:         s3Client,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
+		db:         database,
 	}
 }
 
@@ -105,6 +108,12 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		"traceparent", childTraceparent,
 	)
 
+	if p.db != nil {
+		if err := p.db.SetProcessing(processCtx, msg.TaskID); err != nil {
+			slog.Error("failed to set task processing", "task_id", msg.TaskID, "error", err)
+		}
+	}
+
 	p.publishSSE(sseEvent{
 		EventType:   "task.processing",
 		TraceID:     traceID,
@@ -126,6 +135,9 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		if err != nil {
 			slog.Error("ai runtime call failed", "task_id", msg.TaskID, "error", err)
 			metrics.TasksFailed.Inc()
+			if p.db != nil {
+				_ = p.db.SetFailed(processCtx, msg.TaskID, "ai_runtime_error")
+			}
 			p.publishSSE(sseEvent{
 				EventType:   "task.failed",
 				TraceID:     traceID,
@@ -155,6 +167,9 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 	if err != nil {
 		slog.Error("failed to write output to s3", "task_id", msg.TaskID, "error", err)
 		metrics.TasksFailed.Inc()
+		if p.db != nil {
+			_ = p.db.SetFailed(processCtx, msg.TaskID, "s3_write_error")
+		}
 		p.publishSSE(sseEvent{
 			EventType:   "task.failed",
 			TraceID:     traceID,
@@ -173,6 +188,12 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 	if err != nil {
 		// task processed successfully; log only — don't fail
 		slog.Error("failed to delete sqs message", "task_id", msg.TaskID, "error", err)
+	}
+
+	if p.db != nil {
+		if err := p.db.SetCompleted(processCtx, msg.TaskID, s3Key); err != nil {
+			slog.Error("failed to set task completed", "task_id", msg.TaskID, "error", err)
+		}
 	}
 
 	metrics.TasksProcessed.Inc()
