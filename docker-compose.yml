@@ -1,4 +1,6 @@
 version: "3.9"
+# TODO: centralize env vars (POSTGRES credentials, DATABASE_URL, AWS keys) in .env/.env.example
+#       during a future operational configuration pass when all services are stable.
 
 networks:
   traceruntime:
@@ -28,6 +30,46 @@ services:
     cpus: "0.5"
     profiles: [core, full, no-ai]
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=traceruntime
+      - POSTGRES_USER=traceruntime
+      - POSTGRES_PASSWORD=traceruntime
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [traceruntime]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traceruntime -d traceruntime"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    init: true
+    mem_limit: 256m
+    cpus: "0.5"
+    profiles: [core, full, no-ai]
+
+  migrate:
+    image: migrate/migrate:v4.18.1
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable"
+      - "up"
+    volumes:
+      - ./infra/database/migrations:/migrations:ro
+    networks: [traceruntime]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 64m
+    cpus: "0.25"
+    profiles: [core, full, no-ai]
+
   api:
     build:
       context: ./services/api
@@ -43,10 +85,13 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
+      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable
     networks: [traceruntime]
     depends_on:
       localstack:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
       interval: 30s
@@ -76,6 +121,7 @@ services:
       - API_INTERNAL_URL=http://api:8082
       - AI_RUNTIME_URL=http://ai-runtime:8000
       - AI_RUNTIME_ENABLED=false
+      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable
     ports:
       - "9091:9091"
     networks: [traceruntime]
@@ -84,6 +130,8 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
       interval: 30s
@@ -145,3 +193,6 @@ services:
     mem_limit: 256m
     cpus: "0.5"
     profiles: [core, full, no-ai]
+
+volumes:
+  postgres_data:
