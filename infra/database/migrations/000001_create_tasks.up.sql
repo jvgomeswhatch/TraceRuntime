@@ -1,7 +1,8 @@
 CREATE TABLE IF NOT EXISTS tasks (
-    id                    TEXT PRIMARY KEY,
+    id                    UUID PRIMARY KEY,
     trace_id              TEXT NOT NULL,
-    status                TEXT NOT NULL DEFAULT 'pending',
+    status                TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     processing_started_at TIMESTAMPTZ,
@@ -10,6 +11,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     error_message         TEXT
 );
 
-CREATE INDEX idx_tasks_status     ON tasks(status);
-CREATE INDEX idx_tasks_trace_id   ON tasks(trace_id);
-CREATE INDEX idx_tasks_created_at ON tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_status     ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_trace_id   ON tasks(trace_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
