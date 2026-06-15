@@ -32,14 +32,24 @@ infra-smoke:
 	./scripts/smoke-test.sh
 
 # ── Environment ────────────────────────────────────────────────────────────────
-.PHONY: up down restart reset
+.PHONY: bootstrap up down restart reset
 
-# First-time setup: run 'make infra-apply' before 'make up'
+# First-time setup or reprovisioning — idempotent, safe to run multiple times
+bootstrap:
+	docker network create traceruntime 2>/dev/null || true
+	docker compose up -d localstack postgres
+	docker compose --profile infra up terraform
+	docker compose --profile no-ai up -d
+	docker exec traceruntime-localstack-1 awslocal sqs get-queue-url --queue-name traceruntime-tasks --output text
+	docker exec traceruntime-localstack-1 awslocal sqs get-queue-url --queue-name traceruntime-tasks-dlq --output text
+	docker exec traceruntime-localstack-1 awslocal s3api head-bucket --bucket traceruntime-outputs
+	@echo "Bootstrap validation complete."
+
+# Daily development — assumes bootstrap has been run at least once
 up:
 	docker network create traceruntime 2>/dev/null || true
 	docker compose -f infra/observability/docker-compose.yml up -d
 	docker compose --profile no-ai up -d
-	./scripts/bootstrap.sh
 
 down:
 	docker compose --profile no-ai down
@@ -47,13 +57,13 @@ down:
 
 restart: down up
 
-# reset tears down all state including infra — reprovisioning happens automatically
+# reset tears down all state including volumes — requires bootstrap after
 reset:
 	docker compose --profile no-ai down -v
+	docker compose --profile infra down -v
 	docker compose -f infra/observability/docker-compose.yml down -v
 	docker network rm traceruntime 2>/dev/null || true
-	$(MAKE) infra-apply
-	$(MAKE) up
+	$(MAKE) bootstrap
 
 # ── Operations ─────────────────────────────────────────────────────────────────
 .PHONY: ps logs health queue-stats

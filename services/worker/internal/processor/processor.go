@@ -110,7 +110,8 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 
 	if p.db != nil {
 		if err := p.db.SetProcessing(processCtx, msg.TaskID); err != nil {
-			slog.Error("failed to set task processing", "task_id", msg.TaskID, "error", err)
+			slog.Error("skipping task — state conflict or db error", "task_id", msg.TaskID, "error", err)
+			return
 		}
 	}
 
@@ -136,7 +137,9 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 			slog.Error("ai runtime call failed", "task_id", msg.TaskID, "error", err)
 			metrics.TasksFailed.Inc()
 			if p.db != nil {
-				_ = p.db.SetFailed(processCtx, msg.TaskID, "ai_runtime_error")
+				if err := p.db.SetFailed(processCtx, msg.TaskID, "ai_runtime_error"); err != nil {
+					slog.Error("failed to set task failed", "task_id", msg.TaskID, "error", err)
+				}
 			}
 			p.publishSSE(sseEvent{
 				EventType:   "task.failed",
@@ -168,7 +171,9 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		slog.Error("failed to write output to s3", "task_id", msg.TaskID, "error", err)
 		metrics.TasksFailed.Inc()
 		if p.db != nil {
-			_ = p.db.SetFailed(processCtx, msg.TaskID, "s3_write_error")
+			if err := p.db.SetFailed(processCtx, msg.TaskID, "s3_write_error"); err != nil {
+				slog.Error("failed to set task failed", "task_id", msg.TaskID, "error", err)
+			}
 		}
 		p.publishSSE(sseEvent{
 			EventType:   "task.failed",

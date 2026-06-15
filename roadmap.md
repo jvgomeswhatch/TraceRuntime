@@ -178,30 +178,69 @@ Validate:
 
 ---
 
-# Phase 7 — Terraform
+# Phase 7 — Terraform ✅
 
 Provision with Terraform:
 
-- SQS
-- DLQs
-- SNS
-- S3
+- SQS queues (tasks + DLQ)
+- S3 bucket (traceruntime-outputs)
+- SNS (deferred — no multi-consumer use case yet)
+
+Terraform containerized:
+
+- `hashicorp/terraform:1.12` runs inside Docker Compose (profile `infra`)
+- No local Terraform installation required
+- Provider cache in named volume `terraform_cache` (no Windows/Linux conflict)
+- State persisted via bind mount (`infra/terraform/terraform.tfstate`)
+- `terraform.tfstate` gitignored — local-only
+
+Bootstrap flow:
+
+```
+make bootstrap
+├── docker compose up -d localstack postgres
+├── docker compose --profile infra up terraform   (init + apply)
+├── docker compose --profile no-ai up -d          (migrate + api + worker + frontend)
+└── validation (SQS queues + S3 bucket exist)
+```
+
+Daily development: `make up` (no Terraform, no reprovisioning).
 
 Goal:
 
 - reproducible infrastructure
 - minimal IaC
+- zero local tool installation beyond Docker
 
 ---
 
-# Phase 7.5 — Task Persistence (PostgreSQL + S3)
+# Phase 7.5 — Task Persistence (PostgreSQL + S3) ✅
 
 Integrate PostgreSQL into the worker runtime:
 
-- worker writes task state transitions to PostgreSQL (`pending → processing → completed/failed`)
+- API inserts task into PostgreSQL on creation (`pending`)
+- Worker writes task state transitions to PostgreSQL (`pending → processing → completed/failed`)
 - S3 key recorded in PostgreSQL after artifact write — no artifact exists without a database record
 - PostgreSQL becomes the system of record for task state and artifact metadata
 - S3 remains the artifact store for large or binary outputs (PDFs, images, audio)
+
+Implementation:
+
+- PostgreSQL 16 (alpine, 256m) with health check (`pg_isready`)
+- Schema: `tasks` table with status FSM, `artifact_key`, timestamps, 3 indexes, check constraint
+- Migrations via `migrate/migrate:v4.18.1` container (one-shot, `depends_on: postgres healthy`)
+- pgx/v5 connection pool in both API and Worker (no ORM)
+- Artifact key format: `{trace_id}/{task_id}.json`
+- API and Worker depend on `migrate: service_completed_successfully`
+
+Validated:
+
+- Task creation → PostgreSQL insert (`pending`)
+- Worker processing → status `processing` with `processing_started_at`
+- Task completion → status `completed` with `artifact_key` and `completed_at`
+- S3 artifact content matches database record
+- SSE events visible in frontend (task.created → task.processing → task.completed)
+- Bootstrap idempotent (Terraform: `0 added, 0 changed, 0 destroyed` on rerun)
 
 Goal:
 
@@ -210,6 +249,59 @@ Goal:
 - operational queries become possible: "which tasks failed?", "which tasks generated artifacts?"
 
 Note: This phase resolves the known gap from Phase 6 where task state lives exclusively in memory/SQS and S3 has no corresponding PostgreSQL record.
+
+---
+
+# Phase 7B — CI/CD (GitHub Actions)
+
+Prerequisite: Phase 7.5 complete — integration tests require task → queue → worker → PostgreSQL → S3 flow to exist.
+
+Two parallel jobs on every PR. No deployment automation — CD is out of scope (no staging, no registry, no remote environment).
+
+## Job 1 — Fast Quality Gate
+
+Goal: detect development errors in under 3 minutes. Blocks merge.
+
+- `go build ./...`
+- `go test ./...`
+- `golangci-lint run`
+- `buf lint` + `buf generate --template buf.gen.yaml`
+- `terraform fmt -check` + `terraform validate`
+- `docker compose config`
+- `npm ci` + `npm run lint` + `npm run typecheck` + `npm run build`
+- `ruff check .` + `pytest`
+
+No containers. No LocalStack. No Ollama. Fast and reliable.
+
+## Job 2 — Integration Validation
+
+Goal: verify the architecture works end-to-end with mock AI. Runs in parallel with Job 1.
+
+Services started in CI:
+- LocalStack
+- PostgreSQL
+- API
+- Worker
+- AI Runtime (mock — returns `{"result": "mock-response"}`)
+
+Steps:
+- `make infra-apply`
+- `make infra-smoke`
+- End-to-end task flow: create task → enqueue → worker consume → persist state → artifact write → task complete
+
+Validates: SQS, DLQ, PostgreSQL, S3, trace propagation.
+
+Ollama is never run in CI — it adds RAM, instability, and validates nothing about the infrastructure. Real model validation belongs to Phase 8.5 and Phase 9.
+
+## Job 3 — Chaos Validation (future, post Phase 8)
+
+Kill worker, simulate queue lag, simulate runtime failure. Verify heartbeat, recovery, DLQ, alerts. Added after Auto-Healing exists.
+
+## Goal
+
+- Every PR is automatically validated
+- Architectural regressions are detected before merge
+- No deployment automation
 
 ---
 
@@ -281,6 +373,56 @@ Goal:
 - validate resilience
 - validate observability
 - validate recovery flows
+
+---
+
+# Phase 10 — Multi-Provider LLM (Plug-and-Play)
+
+Prerequisite: Phase 9 complete — local pipeline fully validated and resilient.
+
+Transform the AI Runtime into a plug-and-play layer that accepts any LLM provider:
+
+Providers:
+
+- Ollama local (already implemented, default)
+- Groq (free tier: 30 req/min, Llama/Mixtral)
+- Google Gemini (free tier: 15 req/min, Gemini Flash)
+- OpenRouter (aggregator, multiple free models)
+- OpenAI (paid, GPT-4o)
+- Anthropic (paid, Claude)
+
+Configuration via environment variables:
+
+```
+AI_PROVIDER=ollama|groq|gemini|openrouter|openai|anthropic
+AI_MODEL=qwen2:7b|llama-3-8b|gemini-flash|gpt-4o|claude-sonnet
+AI_API_KEY=...              # only for cloud providers
+AI_BASE_URL=...             # optional override
+```
+
+Implementation:
+
+- Provider adapter interface in AI Runtime (Python)
+- One adapter file per provider (~50 lines each)
+- Same response contract: output, model, inference_duration_ms
+- trace_id propagation works identically across all providers
+
+What does NOT change:
+
+- SQS, PostgreSQL, S3, traces, metrics, dashboard — everything stays the same
+- The only thing that changes is where the inference response comes from
+
+Validation:
+
+- Same task, different providers → compare latency, output, cost in Grafana
+- Dashboard shows model name and provider per task
+- Traces show inference duration per provider
+
+Goal:
+
+- anyone who clones the project can plug their own LLM (local or cloud) without changing infrastructure
+- observable comparison between providers using the same operational pipeline
+- zero cost to test with Groq/Gemini free tiers
 
 ---
 

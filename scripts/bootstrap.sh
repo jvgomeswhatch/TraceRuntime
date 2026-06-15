@@ -20,7 +20,7 @@ check_queue() {
     echo "ok"
   else
     echo "MISSING"
-    echo "ERROR: Run 'make infra-apply' to provision infrastructure before starting the environment."
+    echo "ERROR: Run 'make bootstrap' to provision infrastructure before starting the environment."
     FAILED=1
   fi
 }
@@ -33,7 +33,7 @@ check_bucket() {
     echo "ok"
   else
     echo "MISSING"
-    echo "ERROR: Run 'make infra-apply' to provision infrastructure before starting the environment."
+    echo "ERROR: Run 'make bootstrap' to provision infrastructure before starting the environment."
     FAILED=1
   fi
 }

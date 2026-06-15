@@ -28,7 +28,7 @@ services:
     init: true
     mem_limit: 512m
     cpus: "0.5"
-    profiles: [core, full, no-ai]
+    profiles: [core, full, no-ai, infra]
 
   postgres:
     image: postgres:16-alpine
@@ -52,6 +52,28 @@ services:
     mem_limit: 256m
     cpus: "0.5"
     profiles: [core, full, no-ai]
+
+  terraform:
+    image: hashicorp/terraform:1.12
+    entrypoint:
+      - sh
+      - -c
+      - "terraform init -input=false && terraform apply -auto-approve"
+    working_dir: /infra
+    volumes:
+      - ./infra/terraform:/infra
+      - terraform_cache:/terraform-cache
+    environment:
+      - TF_VAR_localstack_endpoint=http://localstack:4566
+      - TF_PLUGIN_CACHE_DIR=/terraform-cache
+    networks: [traceruntime]
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 512m
+    cpus: "0.5"
+    profiles: [infra]
 
   migrate:
     image: migrate/migrate:v4.18.1
@@ -85,10 +107,12 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
-      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable
+      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
     networks: [traceruntime]
     depends_on:
       localstack:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -121,12 +145,14 @@ services:
       - API_INTERNAL_URL=http://api:8082
       - AI_RUNTIME_URL=http://ai-runtime:8000
       - AI_RUNTIME_ENABLED=false
-      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable
+      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
     ports:
       - "9091:9091"
     networks: [traceruntime]
     depends_on:
       localstack:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       api:
         condition: service_healthy
@@ -196,3 +222,4 @@ services:
 
 volumes:
   postgres_data:
+  terraform_cache:
