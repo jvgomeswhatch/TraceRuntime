@@ -30,6 +30,7 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 		w.WriteHeader(http.StatusNoContent)
 	})
 	r.Post("/internal/events", NewEventsHandler(broker).ServeHTTP)
+	r.Get("/api/operations/summary", NewOperationsSummaryHandler(database).ServeHTTP)
 
 	return r
 }
@@ -39,6 +40,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3001")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
 }

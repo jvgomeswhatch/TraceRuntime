@@ -15,6 +15,7 @@ services:
       - SERVICES=sqs,s3
       - DEFAULT_REGION=us-east-1
       - LOCALSTACK_HOST=localstack
+      - SQS_ENDPOINT_STRATEGY=off
     networks: [traceruntime]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
@@ -146,6 +147,7 @@ services:
       - AI_RUNTIME_ENABLED=false
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
       - INTERNAL_TOKEN=local-dev-token-change-in-prod
+      - WATCHDOG_HEARTBEAT_INTERVAL_SECONDS=10
     ports:
       - "9091:9091"
     networks: [traceruntime]
@@ -170,6 +172,51 @@ services:
     mem_limit: 128m
     cpus: "0.5"
     profiles: [core, full, no-ai]
+
+  watchdog:
+    build:
+      context: ./services/watchdog
+      dockerfile: Dockerfile
+    container_name: traceruntime-watchdog
+    profiles: [core, no-ai, full]
+    ports:
+      - "9093:9093"
+    environment:
+      - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=3
+      - WORKER_HEALTH_URL=http://worker:9091/health
+      - API_EVENTS_URL=http://api:8082/internal/events
+      - INTERNAL_TOKEN=local-dev-token-change-in-prod
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
+      - SQS_DLQ_URL=http://localstack:4566/000000000000/traceruntime-tasks-dlq
+      - WATCHDOG_POLL_INTERVAL_SECONDS=15
+      - WATCHDOG_HEARTBEAT_STALE_SECONDS=60
+      - WATCHDOG_HEALTHCHECK_INTERVAL_SECONDS=15
+      - WATCHDOG_HEALTHCHECK_FAILURES=3
+      - WATCHDOG_QUEUE_LAG_THRESHOLD=50
+      - WATCHDOG_TASK_STUCK_SECONDS=300
+      - WATCHDOG_DLQ_DELTA_THRESHOLD=1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - OTEL_SERVICE_NAME=watchdog
+    networks: [traceruntime]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9093/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    init: true
+    mem_limit: 64m
+    cpus: "0.25"
 
   ai-runtime:
     build:

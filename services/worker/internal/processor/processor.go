@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,21 +34,24 @@ type Config struct {
 }
 
 type Processor struct {
-	cfg        Config
-	sqs        *sqssdk.Client
-	s3         *s3.Client
-	httpClient *http.Client
-	db         *db.DB
+	cfg           Config
+	sqs           *sqssdk.Client
+	s3            *s3.Client
+	httpClient    *http.Client
+	db            *db.DB
+	currentTaskID atomic.Value
 }
 
 func New(cfg Config, sqsClient *sqssdk.Client, s3Client *s3.Client, database *db.DB) *Processor {
-	return &Processor{
+	p := &Processor{
 		cfg:        cfg,
 		sqs:        sqsClient,
 		s3:         s3Client,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 		db:         database,
 	}
+	p.currentTaskID.Store("")
+	return p
 }
 
 type sqsMessage struct {
@@ -82,6 +86,9 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		slog.Error("failed to parse sqs message body", "error", err, "body", body)
 		return // leave in queue for redelivery
 	}
+
+	p.currentTaskID.Store(msg.TaskID)
+	defer p.currentTaskID.Store("")
 
 	// traceparent from message attribute is authoritative; fall back to body field
 	traceparent := traceparentAttr
@@ -312,6 +319,10 @@ func (p *Processor) publishSSE(ev sseEvent) {
 		slog.Warn("sse publish returned error status", "status", resp.StatusCode)
 		metrics.SSEPublishErrors.Inc()
 	}
+}
+
+func (p *Processor) CurrentTaskID() string {
+	return p.currentTaskID.Load().(string)
 }
 
 func EnvBool(key string, def bool) bool {

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -72,8 +74,44 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	startTime := time.Now()
+	workerID := os.Getenv("WORKER_ID")
+	if workerID == "" {
+		hostname, _ := os.Hostname()
+		workerID = hostname
+	}
+	heartbeatInterval := 10
+	if v := os.Getenv("WATCHDOG_HEARTBEAT_INTERVAL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			heartbeatInterval = n
+		}
+	}
+
 	go pollQueueDepth(ctx, sqsClient, queueURL, dlqURL)
 	go pollMessages(ctx, sqsClient, queueURL, proc)
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				hb := db.Heartbeat{
+					WorkerID:       workerID,
+					TasksProcessed: int64(metrics.GetTasksProcessed()),
+					TasksFailed:    int64(metrics.GetTasksFailed()),
+					CurrentTaskID:  proc.CurrentTaskID(),
+					Goroutines:     runtime.NumGoroutine(),
+					UptimeSeconds:  int64(time.Since(startTime).Seconds()),
+				}
+				if err := database.UpsertHeartbeat(ctx, hb); err != nil {
+					slog.Warn("heartbeat upsert failed", "error", err)
+				}
+			}
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

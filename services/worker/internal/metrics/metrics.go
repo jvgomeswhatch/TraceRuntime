@@ -3,6 +3,7 @@ package metrics
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	dto "github.com/prometheus/client_model/go"
 )
 
 var (
@@ -48,3 +49,19 @@ var (
 		Buckets: []float64{0.1, 1, 5, 10, 20},
 	})
 )
+
+func GetTasksProcessed() float64 {
+	m := &dto.Metric{}
+	if err := TasksProcessed.Write(m); err != nil {
+		return 0
+	}
+	return m.GetCounter().GetValue()
+}
+
+func GetTasksFailed() float64 {
+	m := &dto.Metric{}
+	if err := TasksFailed.Write(m); err != nil {
+		return 0
+	}
+	return m.GetCounter().GetValue()
+}

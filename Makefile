@@ -79,6 +79,7 @@ health:
 	@curl -sf $(HEALTH_API_URL) && echo " api: ok" || echo " api: FAIL"
 	@curl -sf $(HEALTH_WORKER_METRICS) > /dev/null && echo " worker: ok" || echo " worker: FAIL"
 	@curl -sf $(HEALTH_LOCALSTACK_URL) > /dev/null && echo " localstack: ok" || echo " localstack: FAIL"
+	@curl -sf http://localhost:9093/health > /dev/null && echo " watchdog: ok" || echo " watchdog: FAIL"
 
 queue-stats:
 	@aws --endpoint-url=$(LOCALSTACK_ENDPOINT) --region=us-east-1 \
@@ -98,6 +99,7 @@ test: test-go test-python
 test-go:
 	cd services/api && go test ./...
 	cd services/worker && go test ./...
+	cd services/watchdog && go test ./...
 
 test-python:
 	cd ai-runtime && python -m pytest -v
@@ -107,6 +109,7 @@ lint: lint-go lint-terraform lint-python lint-frontend
 lint-go:
 	cd services/api && golangci-lint run ./...
 	cd services/worker && golangci-lint run ./...
+	cd services/watchdog && golangci-lint run ./...
 
 lint-terraform:
 	cd infra/terraform && terraform fmt -check -recursive
