@@ -20,6 +20,7 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 	r.Use(otelMiddleware)
+	r.Use(RateLimitMiddleware())
 
 	r.Get("/health", Health)
 	r.Get("/metrics", NewMetricsHandler(broker, q).ServeHTTP)

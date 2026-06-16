@@ -23,7 +23,7 @@ Constraints:
 Define:
 
 - monorepo structure
-- protobuf contracts
+- JSON event contracts
 - event schema
 - trace propagation flow
 
@@ -32,6 +32,8 @@ Output:
 - stable service boundaries
 - event definitions
 - architecture diagram
+
+Note: Protobuf was originally defined in this phase but removed after evaluation. All services communicate via JSON over HTTP/SSE/SQS. With 2 Go services, 1 Python runtime, and 1 frontend — all maintained by the same developer — protobuf added complexity (code generation, oneof flattening, protojson configuration) without tangible benefit. JSON contracts are enforced by shared struct definitions in Go and TypeScript interfaces in the frontend. If the project scales to multiple teams or adds gRPC inter-service communication, protobuf can be reintroduced with a real use case.
 
 ---
 
@@ -252,56 +254,61 @@ Note: This phase resolves the known gap from Phase 6 where task state lives excl
 
 ---
 
-# Phase 7B — CI/CD (GitHub Actions)
+# Phase 7B — CI/CD (GitHub Actions) ✅
 
-Prerequisite: Phase 7.5 complete — integration tests require task → queue → worker → PostgreSQL → S3 flow to exist.
+Prerequisite: Phase 7.5 complete.
 
 Two parallel jobs on every PR. No deployment automation — CD is out of scope (no staging, no registry, no remote environment).
 
-## Job 1 — Fast Quality Gate
+## Job 1 — Quality Gate
 
 Goal: detect development errors in under 3 minutes. Blocks merge.
 
-- `go build ./...`
-- `go test ./...`
-- `golangci-lint run`
-- `buf lint` + `buf generate --template buf.gen.yaml`
-- `terraform fmt -check` + `terraform validate`
-- `docker compose config`
-- `npm ci` + `npm run lint` + `npm run typecheck` + `npm run build`
-- `ruff check .` + `pytest`
+Implemented:
+
+- Go build + test (api and worker separately, `QUEUE_BACKEND=inmemory`)
+- golangci-lint v2.2 (`.golangci.yml` with explicit linter set)
+- Terraform fmt check + validate
+- Docker Compose config validation
+- Frontend: npm ci + lint + typecheck + build
+- Python: ruff check + pytest
 
 No containers. No LocalStack. No Ollama. Fast and reliable.
 
-## Job 2 — Integration Validation
+## Job 2 — Integration
 
-Goal: verify the architecture works end-to-end with mock AI. Runs in parallel with Job 1.
+Goal: verify infrastructure provisioning works. Runs in parallel with Job 1.
 
-Services started in CI:
-- LocalStack
-- PostgreSQL
-- API
-- Worker
-- AI Runtime (mock — returns `{"result": "mock-response"}`)
+Services started in CI (GitHub Actions service containers):
+
+- LocalStack 3.4
+- PostgreSQL 16
 
 Steps:
-- `make infra-apply`
-- `make infra-smoke`
-- End-to-end task flow: create task → enqueue → worker consume → persist state → artifact write → task complete
 
-Validates: SQS, DLQ, PostgreSQL, S3, trace propagation.
+- Terraform init + apply (SQS queues + S3 bucket)
+- Database migration (migrate container)
+- Infrastructure smoke test (`scripts/smoke-test.sh` — 11-point validation)
+- Database schema validation
 
-Ollama is never run in CI — it adds RAM, instability, and validates nothing about the infrastructure. Real model validation belongs to Phase 8.5 and Phase 9.
+Validates: SQS, DLQ, S3, PostgreSQL schema, Terraform provisioning.
 
-## Job 3 — Chaos Validation (future, post Phase 8)
-
-Kill worker, simulate queue lag, simulate runtime failure. Verify heartbeat, recovery, DLQ, alerts. Added after Auto-Healing exists.
+Ollama is never run in CI — it adds RAM, instability, and validates nothing about the infrastructure.
 
 ## Goal
 
 - Every PR is automatically validated
 - Architectural regressions are detected before merge
 - No deployment automation
+
+## Technical Debt (Phase 7B Hardening)
+
+The following items were identified during implementation and will be addressed incrementally:
+
+- [ ] End-to-end integration test: task creation → SQS → worker → PostgreSQL → S3 (requires `tests/integration/` with dedicated `go.mod`)
+- [ ] CI Job 2 service containers: add API + Worker builds to run full flow in CI
+- [ ] Expand `golangci-lint` ruleset as codebase matures
+- [ ] Cache optimization: Go modules, pip, npm across jobs
 
 ---
 
@@ -323,6 +330,16 @@ Actions:
 Goal:
 
 - operational recovery visible in UI
+
+## Technical Debt (from Phase 7B)
+
+The following items become actionable once Phase 8 is implemented:
+
+- [ ] Create `tests/integration/` with dedicated `go.mod` for end-to-end tests
+- [ ] End-to-end integration test: API → SQS → Worker → PostgreSQL → S3 flow
+- [ ] Add CI Job 2 service containers for API + Worker (build and run in CI)
+- [ ] Resilience tests: queue lag, visibility timeout expiry, DLQ routing
+- [ ] CI Job 3 — Chaos Validation: kill worker, simulate queue lag, verify recovery + DLQ + alerts
 
 ---
 
@@ -373,6 +390,15 @@ Goal:
 - validate resilience
 - validate observability
 - validate recovery flows
+
+## Technical Debt (from Phase 7B)
+
+The following items become actionable once Phase 9 is implemented:
+
+- [ ] Auto-healing validation pipelines in CI
+- [ ] Self-repair automation tests
+- [ ] Recovery validation: verify SLO compliance after controlled failure injection
+- [ ] Automated chaos scenarios in CI (post Phase 8 CI Job 3)
 
 ---
 

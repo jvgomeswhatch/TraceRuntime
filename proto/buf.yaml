@@ -1,7 +1,0 @@
-version: v2
-modules:
-  - path: .
-    lint:
-      except:
-        - ENUM_VALUE_PREFIX  # EventType values use domain prefix (TASK_, WORKER_) instead of enum prefix (EVENT_TYPE_)
-deps: []

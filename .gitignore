@@ -16,20 +16,20 @@ __pycache__/
 venv/
 dist/
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
 
 # Node
 node_modules/
 .next/
 out/
 
-# Generated protobuf stubs — regenerate with: buf generate
-# Uncomment the lines below if you prefer not to commit generated code.
-# shared/gen/go/
-# shared/gen/python/
-
 # Local env
 .env
 .env.local
+
+# Claude Code
+.claude/
 
 # Terraform — state and ephemeral dirs are not committed
 # .terraform.lock.hcl IS committed (pins provider versions for reproducibility)

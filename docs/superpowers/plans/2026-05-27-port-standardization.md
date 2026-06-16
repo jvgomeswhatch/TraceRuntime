@@ -63,7 +63,7 @@ OTEL_HTTP_PORT=4318
 OTEL_COLLECTOR_METRICS_PORT=8889
 ```
 
-Salva em `C:\Users\joaog\Desktop\DevOps\TraceRuntime\.env`.
+Salva em `.env` (raiz do projeto).
 
 - [ ] **Step 2: Verificar que o arquivo existe**
 

@@ -6,8 +6,16 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o worker ./cmd/worker
 
 FROM alpine:3.19
-RUN apk add --no-cache curl
+
+RUN apk add --no-cache curl && \
+    addgroup -S app && adduser -S app -G app
+
 WORKDIR /app
+
 COPY --from=builder /app/worker .
+
+USER app
+
 EXPOSE 9091
+
 CMD ["./worker"]

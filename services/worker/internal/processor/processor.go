@@ -295,6 +295,9 @@ func (p *Processor) publishSSE(ev sseEvent) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if token := os.Getenv("INTERNAL_TOKEN"); token != "" {
+		req.Header.Set("X-Internal-Token", token)
+	}
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {

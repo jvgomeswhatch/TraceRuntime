@@ -15,8 +15,6 @@ services:
       - SERVICES=sqs,s3
       - DEFAULT_REGION=us-east-1
       - LOCALSTACK_HOST=localstack
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
     networks: [traceruntime]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
@@ -108,6 +106,7 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
+      - INTERNAL_TOKEN=local-dev-token-change-in-prod
     networks: [traceruntime]
     depends_on:
       localstack:
@@ -146,6 +145,7 @@ services:
       - AI_RUNTIME_URL=http://ai-runtime:8000
       - AI_RUNTIME_ENABLED=false
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
+      - INTERNAL_TOKEN=local-dev-token-change-in-prod
     ports:
       - "9091:9091"
     networks: [traceruntime]

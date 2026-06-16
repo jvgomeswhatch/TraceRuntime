@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Go ──────────────────────────────────────────────────────────────
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/api/go.mod
+
+      - name: Go build (api)
+        run: cd services/api && go build ./...
+
+      - name: Go build (worker)
+        run: cd services/worker && go build ./...
+
+      - name: Go test (api)
+        run: cd services/api && go test -race -count=1 ./...
+        env:
+          QUEUE_BACKEND: inmemory
+
+      - name: Go test (worker)
+        run: cd services/worker && go test -race -count=1 ./...
+
+      - name: golangci-lint (api)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.2
+          working-directory: services/api
+          args: --timeout=3m
+
+      - name: golangci-lint (worker)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.2
+          working-directory: services/worker
+          args: --timeout=3m
+
+      # ── Terraform ───────────────────────────────────────────────────────
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+
+      - name: Terraform fmt check
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+
+      - name: Terraform validate
+        run: |
+          terraform -chdir=infra/terraform init -backend=false -input=false
+          terraform -chdir=infra/terraform validate
+
+      # ── Docker ──────────────────────────────────────────────────────────
+      - name: Docker Compose config
+        run: docker compose config --quiet
+
+      # ── Frontend ────────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend install
+        run: cd frontend && npm ci
+
+      - name: Frontend lint
+        run: cd frontend && npm run lint
+
+      - name: Frontend typecheck
+        run: cd frontend && npm run typecheck
+
+      - name: Frontend build
+        run: cd frontend && npm run build
+
+      # ── Python ──────────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python install
+        run: cd ai-runtime && pip install -r requirements.txt
+
+      - name: Python lint
+        run: cd ai-runtime && ruff check .
+
+      - name: Python test
+        run: cd ai-runtime && python -m pytest -v
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: []
+
+    services:
+      localstack:
+        image: localstack/localstack:3.4
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: sqs,s3
+          DEFAULT_REGION: us-east-1
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 20s
+
+      postgres:
+        image: postgres:16-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: traceruntime
+          POSTGRES_USER: traceruntime
+          POSTGRES_PASSWORD: traceruntime
+        options: >-
+          --health-cmd "pg_isready -U traceruntime -d traceruntime"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Terraform provisioning ──────────────────────────────────────────
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+
+      - name: Terraform apply
+        run: |
+          terraform -chdir=infra/terraform init -input=false
+          terraform -chdir=infra/terraform apply -auto-approve
+        env:
+          TF_VAR_localstack_endpoint: http://localhost:4566
+
+      # ── Database migration ──────────────────────────────────────────────
+      - name: Run migrations
+        run: |
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/infra/database/migrations:/migrations:ro \
+            migrate/migrate:v4.18.1 \
+            -path=/migrations \
+            -database="postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable" \
+            up
+
+      # ── Infrastructure smoke test ───────────────────────────────────────
+      - name: Install AWS CLI
+        run: |
+          pip install awscli
+
+      - name: Smoke test
+        run: ./scripts/smoke-test.sh
+        env:
+          LOCALSTACK_ENDPOINT: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+
+      # ── Database validation ─────────────────────────────────────────────
+      - name: Validate database schema
+        run: |
+          docker run --rm --network host \
+            postgres:16-alpine \
+            psql "postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable" \
+            -c "\dt" -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tasks' ORDER BY ordinal_position;"

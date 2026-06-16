@@ -116,6 +116,7 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 
 	_, validateSpan := taskTracer.Start(ctx, "task.validate")
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req taskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		validateSpan.End()
@@ -125,6 +126,11 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if req.Input == "" {
 		validateSpan.End()
 		jsonError(w, "input is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Input) > 10000 {
+		validateSpan.End()
+		jsonError(w, "input too long", http.StatusBadRequest)
 		return
 	}
 	validateSpan.End()

@@ -16,7 +16,7 @@ Leia `.claude/context.md` e `roadmap.md` antes de qualquer implementação.
 | Banco | PostgreSQL 16 · pgx (sem ORM) |
 | Infra | Docker Compose · LocalStack · Terraform (mínimo) |
 | Observabilidade | OTEL SDK → OTEL Collector → Tempo · Prometheus · Grafana · Loki |
-| Contratos | Protobuf · buf CLI |
+| Contratos | JSON (event envelope padronizado) |
 
 ---
 
@@ -26,7 +26,7 @@ Leia `.claude/context.md` e `roadmap.md` antes de qualquer implementação.
 Serviço Go (API, worker, SSE handler)?     → go-services
 Lógica AI / LangGraph / Ollama?            → langgraph
 Instrumentação OTEL / trace propagation?   → otel
-Schema .proto / buf / stubs Go+Python?     → protobuf
+Contrato de evento JSON / validação?        → go-services
 Fila SQS, SNS, S3, Terraform?              → infra-terraform
 docker-compose.yml / limits / healthcheck? → docker-compose
 Componente Next.js / SSE hook / dashboard? → frontend

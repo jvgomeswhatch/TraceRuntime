@@ -91,17 +91,34 @@ queue-stats:
 	  --attribute-names ApproximateNumberOfMessages
 
 # ── Development ────────────────────────────────────────────────────────────────
-.PHONY: test lint fmt proto
+.PHONY: test test-go test-python lint lint-go lint-terraform lint-python lint-frontend fmt
 
-test:
-	go test ./...
+test: test-go test-python
 
-lint:
-	golangci-lint run ./...
+test-go:
+	cd services/api && go test ./...
+	cd services/worker && go test ./...
+
+test-python:
+	cd ai-runtime && python -m pytest -v
+
+lint: lint-go lint-terraform lint-python lint-frontend
+
+lint-go:
+	cd services/api && golangci-lint run ./...
+	cd services/worker && golangci-lint run ./...
+
+lint-terraform:
+	cd infra/terraform && terraform fmt -check -recursive
+	cd infra/terraform && terraform validate
+
+lint-python:
+	cd ai-runtime && ruff check .
+
+lint-frontend:
+	cd frontend && npm run lint
+	cd frontend && npm run typecheck
 
 fmt:
 	gofmt -w .
 	cd infra/terraform && terraform fmt -recursive
-
-proto:
-	buf generate

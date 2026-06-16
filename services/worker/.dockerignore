@@ -1,3 +1,8 @@
 *.exe
 *.test
+*.out
 .git
+.env
+.env.*
+.idea/
+.vscode/

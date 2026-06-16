@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/runtime-platform/services/api/internal/event"
 )
@@ -21,6 +22,13 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
+	}
+
+	if token := os.Getenv("INTERNAL_TOKEN"); token != "" {
+		if r.Header.Get("X-Internal-Token") != token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
