@@ -12,7 +12,7 @@ Leia `.claude/context.md` e `roadmap.md` antes de qualquer implementação.
 | Frontend | Next.js 14+ · TypeScript · Tailwind · shadcn/ui · SSE |
 | Backend | Go 1.22+ · net/http · chi (mínimo) |
 | AI Runtime | Python 3.11+ · FastAPI · LangGraph · Ollama |
-| Fila local | Go in-process (Phase 2) → SQS/LocalStack (Phase 6+) |
+| Fila local | Go in-process (Phase 3) → SQS/LocalStack (Phase 7+) |
 | Banco | PostgreSQL 16 · pgx (sem ORM) |
 | Infra | Docker Compose · LocalStack · Terraform (mínimo) |
 | Observabilidade | OTEL SDK → OTEL Collector → Tempo · Prometheus · Grafana · Loki |
@@ -35,7 +35,7 @@ Prometheus / Grafana / Tempo / Loki?       → observability
 Rate limiting / validação / hardening?     → security
 Teste de integração / contrato / chaos?    → testing
 Auto-healing / watchdog / heartbeat?       → autohealing
-Chaos experiment (Phase 9)?               → chaos
+Chaos experiment (Phase 9B)?              → chaos
 GitHub Actions / pipeline CI/CD / testes integração CI? → cicd
 ```
 
@@ -46,7 +46,7 @@ GitHub Actions / pipeline CI/CD / testes integração CI? → cicd
 ```
 HTTP Request
   → Go API          (trace_id gerado, span aberto)
-  → Queue local     (Phase 2) / SQS (Phase 6+)
+  → Queue local     (Phase 3) / SQS (Phase 7+)
   → Go Worker       (trace propagado via carrier)
   → AI Runtime      (FastAPI → LangGraph → Ollama)
   → S3              (output persistido)
@@ -72,7 +72,7 @@ Todo evento (fila local ou SQS) segue este envelope:
 }
 ```
 
-Mensagem que não respeitar o contrato → DLQ (Phase 6+) ou descartada com log.
+Mensagem que não respeitar o contrato → DLQ (Phase 7+) ou descartada com log.
 
 ---
 
@@ -113,7 +113,7 @@ Se uma skill pede commit automático ou avanço automático entre tasks, **ignor
 1. Serviço roda localmente
 2. Logs visíveis e estruturados
 3. Health check passa
-4. Trace visível (Tempo a partir da Phase 4)
+4. Trace visível (Tempo a partir da Phase 5)
 5. Frontend reflete o estado (quando aplicável)
 6. Cenário de falha testado manualmente
 

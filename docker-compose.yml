@@ -107,7 +107,7 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
-      - INTERNAL_TOKEN=local-dev-token-change-in-prod
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
     networks: [traceruntime]
     depends_on:
       localstack:
@@ -125,6 +125,7 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 10s
+    security_opt: [no-new-privileges:true]
     mem_limit: 256m
     cpus: "0.5"
     profiles: [core, full, no-ai]
@@ -146,7 +147,7 @@ services:
       - AI_RUNTIME_URL=http://ai-runtime:8000
       - AI_RUNTIME_ENABLED=false
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
-      - INTERNAL_TOKEN=local-dev-token-change-in-prod
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
       - WATCHDOG_HEARTBEAT_INTERVAL_SECONDS=10
     ports:
       - "9091:9091"
@@ -169,6 +170,7 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 15s
+    security_opt: [no-new-privileges:true]
     mem_limit: 128m
     cpus: "0.5"
     profiles: [core, full, no-ai]
@@ -180,12 +182,12 @@ services:
     container_name: traceruntime-watchdog
     profiles: [core, no-ai, full]
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     environment:
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=3
       - WORKER_HEALTH_URL=http://worker:9091/health
       - API_EVENTS_URL=http://api:8082/internal/events
-      - INTERNAL_TOKEN=local-dev-token-change-in-prod
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -215,6 +217,7 @@ services:
       start_period: 20s
     restart: unless-stopped
     init: true
+    security_opt: [no-new-privileges:true]
     mem_limit: 64m
     cpus: "0.25"
 
@@ -239,6 +242,7 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 10s
+    security_opt: [no-new-privileges:true]
     mem_limit: 768m
     cpus: "1.0"
     profiles: [full]
@@ -263,6 +267,7 @@ services:
       start_period: 15s
     restart: unless-stopped
     init: true
+    security_opt: [no-new-privileges:true]
     mem_limit: 256m
     cpus: "0.5"
     profiles: [core, full, no-ai]

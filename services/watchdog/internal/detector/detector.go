@@ -99,7 +99,7 @@ func (d *Detector) keyForEvent(ev db.HealingEvent) string {
 			return "worker.stale:" + ev.WorkerID
 		}
 		// Fallback: try to extract from details
-		var det map[string]interface{}
+		var det map[string]any
 		if json.Unmarshal(ev.Details, &det) == nil {
 			if wid, ok := det["worker_id"].(string); ok {
 				return "worker.stale:" + wid
@@ -111,7 +111,7 @@ func (d *Detector) keyForEvent(ev db.HealingEvent) string {
 	case "queue.lag":
 		return "queue.lag"
 	case "task.stuck":
-		var det map[string]interface{}
+		var det map[string]any
 		if json.Unmarshal(ev.Details, &det) == nil {
 			if tid, ok := det["task_id"].(string); ok {
 				return "task.stuck:" + tid
@@ -198,7 +198,7 @@ func (d *Detector) detectStaleWorkers(ctx context.Context) {
 			d.mu.Unlock()
 
 			if !exists {
-				details, _ := json.Marshal(map[string]interface{}{
+				details, _ := json.Marshal(map[string]any{
 					"worker_id":   hb.WorkerID,
 					"last_seen":   hb.LastSeenAt.Format(time.RFC3339),
 					"gap_seconds": int(gap.Seconds()),
@@ -295,10 +295,9 @@ func (d *Detector) evaluateWorkerDown(ctx context.Context) {
 		return // already reported
 	}
 
-	details, _ := json.Marshal(map[string]interface{}{
+	details, _ := json.Marshal(map[string]any{
 		"consecutive_failures": d.healthFailures,
 		"threshold":            d.cfg.HealthcheckFailures,
-		"health_url":           d.cfg.WorkerHealthURL,
 	})
 	d.emit(ctx, key, "worker.down", "critical", "watchdog", "", details)
 	metrics.WorkersDown.Set(1)
@@ -320,7 +319,7 @@ func (d *Detector) detectQueueLag(ctx context.Context) {
 		d.mu.Unlock()
 
 		if !exists {
-			details, _ := json.Marshal(map[string]interface{}{
+			details, _ := json.Marshal(map[string]any{
 				"depth":     depth,
 				"threshold": d.cfg.QueueLagThreshold,
 			})
@@ -359,7 +358,7 @@ func (d *Detector) detectStuckTasks(ctx context.Context) {
 
 		if !exists {
 			stuckDuration := time.Since(st.ProcessingStartedAt)
-			details, _ := json.Marshal(map[string]interface{}{
+			details, _ := json.Marshal(map[string]any{
 				"task_id":        st.TaskID,
 				"trace_id":       st.TraceID,
 				"stuck_seconds":  int(stuckDuration.Seconds()),
@@ -404,7 +403,7 @@ func (d *Detector) detectDLQ(ctx context.Context) {
 		d.mu.Unlock()
 
 		if !exists {
-			details, _ := json.Marshal(map[string]interface{}{
+			details, _ := json.Marshal(map[string]any{
 				"depth": depth,
 			})
 			d.emit(ctx, key, "dlq.nonempty", "critical", "watchdog", "", details)
@@ -513,7 +512,7 @@ func (d *Detector) resolve(ctx context.Context, key string) {
 		return
 	}
 
-	resolvedDetails, _ := json.Marshal(map[string]interface{}{
+	resolvedDetails, _ := json.Marshal(map[string]any{
 		"resolved_key": key,
 	})
 

@@ -19,10 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Go ──────────────────────────────────────────────────────────────
+      # -- Go ------------------------------------------------------------------
       - uses: actions/setup-go@v5
         with:
           go-version-file: services/api/go.mod
+          cache-dependency-path: |
+            services/api/go.sum
+            services/worker/go.sum
+            services/watchdog/go.sum
 
       - name: Go build (api)
         run: cd services/api && go build ./...
@@ -52,7 +56,7 @@ jobs:
           working-directory: services/worker
           args: --timeout=3m
 
-      # ── Terraform ───────────────────────────────────────────────────────
+      # -- Terraform -----------------------------------------------------------
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.12.0"
@@ -65,11 +69,11 @@ jobs:
           terraform -chdir=infra/terraform init -backend=false -input=false
           terraform -chdir=infra/terraform validate
 
-      # ── Docker ──────────────────────────────────────────────────────────
+      # -- Docker --------------------------------------------------------------
       - name: Docker Compose config
         run: docker compose config --quiet
 
-      # ── Frontend ────────────────────────────────────────────────────────
+      # -- Frontend ------------------------------------------------------------
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -88,10 +92,12 @@ jobs:
       - name: Frontend build
         run: cd frontend && npm run build
 
-      # ── Python ──────────────────────────────────────────────────────────
+      # -- Python --------------------------------------------------------------
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai-runtime/requirements.txt
 
       - name: Python install
         run: cd ai-runtime && pip install -r requirements.txt
@@ -140,7 +146,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Terraform provisioning ──────────────────────────────────────────
+      # -- Terraform provisioning ----------------------------------------------
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.12.0"
@@ -152,7 +158,7 @@ jobs:
         env:
           TF_VAR_localstack_endpoint: http://localhost:4566
 
-      # ── Database migration ──────────────────────────────────────────────
+      # -- Database migration --------------------------------------------------
       - name: Run migrations
         run: |
           docker run --rm --network host \
@@ -162,7 +168,7 @@ jobs:
             -database="postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable" \
             up
 
-      # ── Infrastructure smoke test ───────────────────────────────────────
+      # -- Infrastructure smoke test -------------------------------------------
       - name: Install AWS CLI
         run: |
           pip install awscli
@@ -175,7 +181,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
 
-      # ── Database validation ─────────────────────────────────────────────
+      # -- Database validation -------------------------------------------------
       - name: Validate database schema
         run: |
           docker run --rm --network host \

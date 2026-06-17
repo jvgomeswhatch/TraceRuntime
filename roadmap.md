@@ -18,7 +18,7 @@ Constraints:
 
 ---
 
-# Phase 0 — Architecture
+# Phase 1 — Architecture ✅
 
 Define:
 
@@ -37,7 +37,7 @@ Note: Protobuf was originally defined in this phase but removed after evaluation
 
 ---
 
-# Phase 1 — API + Frontend
+# Phase 2 — API + Frontend ✅
 
 Build:
 
@@ -63,7 +63,7 @@ NO Docker yet.
 
 ---
 
-# Phase 2 — Local Async Processing
+# Phase 3 — Local Async Processing ✅
 
 Build:
 
@@ -89,7 +89,7 @@ Still NO LocalStack.
 
 ---
 
-# Phase 3 — AI Runtime
+# Phase 4 — AI Runtime
 
 Build:
 
@@ -115,7 +115,7 @@ Goal:
 
 ---
 
-# Phase 4 — Observability
+# Phase 5 — Observability
 
 Add:
 
@@ -134,7 +134,7 @@ Goal:
 
 ---
 
-# Phase 5 — Docker Compose
+# Phase 6 — Docker Compose ✅
 
 Containerize:
 
@@ -156,12 +156,16 @@ Goal:
 
 ---
 
-# Phase 6 — LocalStack
+# Phase 7 — Infrastructure (LocalStack + Terraform + PostgreSQL + CI/CD) ✅
+
+This phase consolidates all infrastructure concerns: durable queues, persistent storage, IaC, and continuous integration.
+
+## 7A — LocalStack (SQS + S3)
 
 Replace local queue with:
 
 - SQS
-- SNS
+- SNS (deferred — no multi-consumer use case yet)
 - S3
 
 Goal:
@@ -172,21 +176,14 @@ Goal:
 - event propagation
 - artifact persistence
 
-Validate:
+Validated: queue lag, visibility timeout, DLQ behavior.
 
-- queue lag
-- visibility timeout
-- DLQ behavior
-
----
-
-# Phase 7 — Terraform ✅
+## 7B — Terraform
 
 Provision with Terraform:
 
 - SQS queues (tasks + DLQ)
 - S3 bucket (traceruntime-outputs)
-- SNS (deferred — no multi-consumer use case yet)
 
 Terraform containerized:
 
@@ -208,15 +205,7 @@ make bootstrap
 
 Daily development: `make up` (no Terraform, no reprovisioning).
 
-Goal:
-
-- reproducible infrastructure
-- minimal IaC
-- zero local tool installation beyond Docker
-
----
-
-# Phase 7.5 — Task Persistence (PostgreSQL + S3) ✅
+## 7C — Task Persistence (PostgreSQL + S3)
 
 Integrate PostgreSQL into the worker runtime:
 
@@ -244,38 +233,27 @@ Validated:
 - SSE events visible in frontend (task.created → task.processing → task.completed)
 - Bootstrap idempotent (Terraform: `0 added, 0 changed, 0 destroyed` on rerun)
 
-Goal:
-
-- tasks survive restarts — state is durable, not in-memory
-- full traceability: task → trace → artifact → S3 key
-- operational queries become possible: "which tasks failed?", "which tasks generated artifacts?"
-
-Note: This phase resolves the known gap from Phase 6 where task state lives exclusively in memory/SQS and S3 has no corresponding PostgreSQL record.
-
----
-
-# Phase 7B — CI/CD (GitHub Actions) ✅
-
-Prerequisite: Phase 7.5 complete.
+## 7D — CI/CD (GitHub Actions)
 
 Two parallel jobs on every PR. No deployment automation — CD is out of scope (no staging, no registry, no remote environment).
 
-## Job 1 — Quality Gate
+### Job 1 — Quality Gate
 
 Goal: detect development errors in under 3 minutes. Blocks merge.
 
 Implemented:
 
 - Go build + test (api and worker separately, `QUEUE_BACKEND=inmemory`)
-- golangci-lint v2.2 (`.golangci.yml` with explicit linter set)
+- golangci-lint v2.2 (`.golangci.yml` with expanded linter set)
 - Terraform fmt check + validate
 - Docker Compose config validation
 - Frontend: npm ci + lint + typecheck + build
 - Python: ruff check + pytest
+- Cache optimization: Go modules (3 services), pip, npm
 
 No containers. No LocalStack. No Ollama. Fast and reliable.
 
-## Job 2 — Integration
+### Job 2 — Integration
 
 Goal: verify infrastructure provisioning works. Runs in parallel with Job 1.
 
@@ -295,24 +273,19 @@ Validates: SQS, DLQ, S3, PostgreSQL schema, Terraform provisioning.
 
 Ollama is never run in CI — it adds RAM, instability, and validates nothing about the infrastructure.
 
-## Goal
+Goal:
 
-- Every PR is automatically validated
-- Architectural regressions are detected before merge
-- No deployment automation
-
-## Technical Debt (Phase 7B Hardening)
-
-The following items were identified during implementation and will be addressed incrementally:
-
-- [ ] End-to-end integration test: task creation → SQS → worker → PostgreSQL → S3 (requires `tests/integration/` with dedicated `go.mod`)
-- [ ] CI Job 2 service containers: add API + Worker builds to run full flow in CI
-- [ ] Expand `golangci-lint` ruleset as codebase matures
-- [ ] Cache optimization: Go modules, pip, npm across jobs
+- reproducible infrastructure
+- minimal IaC
+- zero local tool installation beyond Docker
+- tasks survive restarts — state is durable, not in-memory
+- full traceability: task → trace → artifact → S3 key
+- every PR automatically validated
+- architectural regressions detected before merge
 
 ---
 
-# Phase 8 — Auto-Healing
+# Phase 8 — Auto-Healing ✅
 
 Implement:
 
@@ -320,6 +293,7 @@ Implement:
 - stale worker detection
 - queue lag monitoring
 - p95 latency monitoring
+- exponential backoff on SSE reconnect
 
 Actions:
 
@@ -331,23 +305,15 @@ Goal:
 
 - operational recovery visible in UI
 
-## Technical Debt (from Phase 7B)
-
-The following items become actionable once Phase 8 is implemented:
-
-- [ ] Create `tests/integration/` with dedicated `go.mod` for end-to-end tests
-- [ ] End-to-end integration test: API → SQS → Worker → PostgreSQL → S3 flow
-- [ ] Add CI Job 2 service containers for API + Worker (build and run in CI)
-- [ ] Resilience tests: queue lag, visibility timeout expiry, DLQ routing
-- [ ] CI Job 3 — Chaos Validation: kill worker, simulate queue lag, verify recovery + DLQ + alerts
-
 ---
 
-# Phase 8.5 — Operational Tuning & Capacity
+# Phase 9 — Operational Tuning, Chaos & Hardening
 
 Prerequisite: Ollama running, Qwen/DeepSeek loaded, full pipeline operational.
 
-This phase resolves the three items left open from Phase 6B validation, which could not be characterized with the mock path (sub-millisecond processing, no real backlog):
+## 9A — Operational Tuning & Capacity
+
+This sub-phase resolves the items left open from Phase 7A validation, which could not be characterized with the mock path (sub-millisecond processing, no real backlog).
 
 Measure:
 
@@ -364,19 +330,17 @@ Calibrate:
 
 Document:
 
-- baseline numbers for all metrics as reference for Phase 9 chaos experiments
+- baseline numbers for all metrics as reference for chaos experiments
 - identified bottlenecks and resource ceiling
 
 Goal:
 
 - all operational parameters are derived from real measurement, not defaults
-- numbers from this phase serve as the SLO baseline for Phase 9
+- numbers from this phase serve as the SLO baseline for chaos testing
 
-Note: measurements obtained with mock AI (Phase 6B) are archived as reference but are not valid operational baselines.
+Note: measurements obtained with mock AI are archived as reference but are not valid operational baselines.
 
----
-
-# Phase 9 — Chaos Testing
+## 9B — Chaos Testing
 
 Test:
 
@@ -391,14 +355,24 @@ Goal:
 - validate observability
 - validate recovery flows
 
-## Technical Debt (from Phase 7B)
+## 9C — Security & Infrastructure Hardening
 
-The following items become actionable once Phase 9 is implemented:
+Security items deferred from earlier phases — require API Gateway/reverse proxy:
 
+- [ ] Add authentication to `/api/operations/summary` (needs BFF/proxy — client-side token is insecure)
+- [ ] Server-side Origin validation on SSE `/events` endpoint (define allowed origins list)
+
+Testing & CI expansion:
+
+- [ ] Create `tests/integration/` with dedicated `go.mod` for end-to-end tests
+- [ ] End-to-end integration test: API → SQS → Worker → PostgreSQL → S3 flow
+- [ ] Add CI Job 2 service containers for API + Worker (build and run in CI)
+- [ ] Resilience tests: queue lag, visibility timeout expiry, DLQ routing
+- [ ] CI Job 3 — Chaos Validation: kill worker, simulate queue lag, verify recovery + DLQ + alerts
 - [ ] Auto-healing validation pipelines in CI
 - [ ] Self-repair automation tests
 - [ ] Recovery validation: verify SLO compliance after controlled failure injection
-- [ ] Automated chaos scenarios in CI (post Phase 8 CI Job 3)
+- [ ] Automated chaos scenarios in CI
 
 ---
 

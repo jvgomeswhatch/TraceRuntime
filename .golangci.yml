@@ -1,15 +1,22 @@
+version: "2"
+
 run:
   timeout: 3m
 
 linters:
   enable:
+    - bodyclose
+    - durationcheck
     - errcheck
-    - govet
-    - staticcheck
-    - unused
-    - ineffassign
     - gosimple
-
-issues:
-  exclude-dirs:
-    - shared/gen
+    - govet
+    - ineffassign
+    - nilerr
+    - unconvert
+    - unparam
+    - unused
+    - staticcheck
+    - wastedassign
+  exclusions:
+    paths:
+      - shared/gen

@@ -8,11 +8,13 @@ import { OperationsSummary } from "@/components/operations-summary";
 export function DashboardClient() {
   return (
     <SSEProvider>
-      <div className="max-w-6xl space-y-6">
+      <div className="w-full space-y-8">
         <OperationsSummary />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <TaskForm />
-          <EventFeed />
+          <div className="lg:col-span-2">
+            <EventFeed />
+          </div>
         </div>
       </div>
     </SSEProvider>

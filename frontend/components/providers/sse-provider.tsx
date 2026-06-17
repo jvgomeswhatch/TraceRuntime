@@ -21,6 +21,9 @@ const MAX_HEALING_EVENTS = 50;
 const SSE_URL = "http://localhost:8082/events";
 const OPS_SUMMARY_URL = "http://localhost:8082/api/operations/summary";
 
+const BACKOFF_INITIAL_MS = 1000;
+const BACKOFF_MAX_MS = 30000;
+
 interface SSEContextValue {
   events: SSEEvent[];
   connected: boolean;
@@ -110,6 +113,11 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   // Tracks whether the EventSource has opened at least once.
   // Used to distinguish initial connection from browser auto-reconnections.
   const hasConnectedRef = useRef(false);
+  // Exponential backoff state -- refs to avoid re-renders
+  const backoffDelayRef = useRef(BACKOFF_INITIAL_MS);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -125,7 +133,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
           setRecentHealingEvents(data.recent_events);
         }
       } catch {
-        // bootstrap fetch failed — SSE will fill in state incrementally
+        // bootstrap fetch failed -- SSE will fill in state incrementally
       } finally {
         if (!cancelled) setOpsLoading(false);
       }
@@ -171,7 +179,29 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const scheduleReconnect = useCallback(() => {
+    // Clear any existing scheduled reconnect
+    if (reconnectTimeoutRef.current !== null) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    const delay = backoffDelayRef.current;
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectTimeoutRef.current = null;
+      // Double the delay for next failure, capped at max
+      backoffDelayRef.current = Math.min(delay * 2, BACKOFF_MAX_MS);
+      connectRef.current();
+    }, delay);
+  }, []);
+
   const connect = useCallback(() => {
+    // Clear any pending reconnect timeout before opening a new connection
+    if (reconnectTimeoutRef.current !== null) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
     if (esRef.current) {
       esRef.current.close();
     }
@@ -179,11 +209,10 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
     const es = new EventSource(SSE_URL);
     esRef.current = es;
 
-    // EventSource auto-reconnects on error. Each time it reconnects,
-    // onopen fires again. We use hasConnectedRef (a ref, not a closure
-    // param) so every onopen invocation reads the current value.
     es.onopen = () => {
       setConnected(true);
+      // Reset backoff delay on successful connection
+      backoffDelayRef.current = BACKOFF_INITIAL_MS;
       if (hasConnectedRef.current) {
         setReconnects((n) => n + 1);
       }
@@ -202,7 +231,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
         } else if (isTaskSSEEvent(raw)) {
           setEvents((prev) => [raw, ...prev].slice(0, MAX_EVENTS));
         }
-        // unknown event shape — silently ignore
+        // unknown event shape -- silently ignore
       } catch {
         // ignore malformed JSON
       }
@@ -210,16 +239,31 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
 
     es.onerror = () => {
       setConnected(false);
-      // EventSource auto-reconnects; onopen will fire again and
-      // increment the reconnect counter via hasConnectedRef.
+      // Close the native EventSource to prevent its built-in auto-reconnect.
+      // We manage reconnection manually with exponential backoff.
+      es.close();
+      esRef.current = null;
+      scheduleReconnect();
     };
-  }, [handleHealingEvent]);
+  }, [handleHealingEvent, scheduleReconnect]);
+
+  // Stable ref so scheduleReconnect's timeout can always call the latest connect
+  const connectRef = useRef(connect);
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     connect();
     return () => {
+      // Clean up EventSource
       esRef.current?.close();
       esRef.current = null;
+      // Clean up any pending reconnect timeout
+      if (reconnectTimeoutRef.current !== null) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
     };
   }, [connect]);
 
