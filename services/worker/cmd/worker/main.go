@@ -106,9 +106,11 @@ func main() {
 					Goroutines:     runtime.NumGoroutine(),
 					UptimeSeconds:  int64(time.Since(startTime).Seconds()),
 				}
-				if err := database.UpsertHeartbeat(ctx, hb); err != nil {
+				hbCtx, hbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := database.UpsertHeartbeat(hbCtx, hb); err != nil {
 					slog.Warn("heartbeat upsert failed", "error", err)
 				}
+				hbCancel()
 			}
 		}
 	}()

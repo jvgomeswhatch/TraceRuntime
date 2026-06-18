@@ -41,6 +41,10 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Flush headers immediately so the browser establishes the SSE connection
+	// without waiting for the first event.
+	flusher.Flush()
+
 	for {
 		select {
 		case <-r.Context().Done():

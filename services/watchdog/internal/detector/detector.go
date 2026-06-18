@@ -42,6 +42,7 @@ type Detector struct {
 type activeEntry struct {
 	eventID   string
 	eventType string
+	severity  string
 }
 
 // New creates a Detector and reconstructs its active-event map from
@@ -82,7 +83,7 @@ func (d *Detector) reconstructActiveState() error {
 	for _, ev := range events {
 		key := d.keyForEvent(ev)
 		if key != "" {
-			d.active[key] = activeEntry{eventID: ev.ID, eventType: ev.EventType}
+			d.active[key] = activeEntry{eventID: ev.ID, eventType: ev.EventType, severity: ev.Severity}
 		}
 	}
 
@@ -173,6 +174,13 @@ func (d *Detector) poll(ctx context.Context) {
 // ---------------------------------------------------------------------------
 
 func (d *Detector) detectStaleWorkers(ctx context.Context) {
+	const orphanThreshold = 2 * time.Minute
+	if deleted, err := d.db.DeleteStaleHeartbeats(ctx, orphanThreshold); err != nil {
+		slog.Error("detector.cleanup_orphan_heartbeats failed", "error", err)
+	} else if deleted > 0 {
+		slog.Info("detector.cleanup_orphan_heartbeats", "deleted", deleted)
+	}
+
 	heartbeats, err := d.db.ListHeartbeats(ctx)
 	if err != nil {
 		slog.Error("detector.stale_workers query failed", "error", err)
@@ -480,7 +488,7 @@ func (d *Detector) emit(ctx context.Context, key, eventType, severity, source, w
 	}
 
 	d.mu.Lock()
-	d.active[key] = activeEntry{eventID: id, eventType: eventType}
+	d.active[key] = activeEntry{eventID: id, eventType: eventType, severity: severity}
 	d.mu.Unlock()
 
 	metrics.HealingEventsTotal.WithLabelValues(eventType, severity).Inc()
@@ -518,6 +526,7 @@ func (d *Detector) resolve(ctx context.Context, key string) {
 
 	sseEvent := publisher.SSEEvent{
 		EventType:      "healing." + entry.eventType + ".resolved",
+		Severity:       entry.severity,
 		Status:         "resolved",
 		HealingEventID: entry.eventID,
 		Details:        resolvedDetails,

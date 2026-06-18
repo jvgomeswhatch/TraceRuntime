@@ -27,6 +27,7 @@ const BACKOFF_MAX_MS = 30000;
 interface SSEContextValue {
   events: SSEEvent[];
   connected: boolean;
+  connectedAt: Date | null;
   reconnects: number;
   lastEventAt: Date | null;
   workers: WorkerStatus[];
@@ -38,6 +39,7 @@ interface SSEContextValue {
 const SSEContext = createContext<SSEContextValue>({
   events: [],
   connected: false,
+  connectedAt: null,
   reconnects: 0,
   lastEventAt: null,
   workers: [],
@@ -99,6 +101,7 @@ function isOperationsSummary(data: unknown): data is OperationsSummary {
 export function SSEProvider({ children }: { children: React.ReactNode }) {
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [connected, setConnected] = useState(false);
+  const [connectedAt, setConnectedAt] = useState<Date | null>(null);
   const [reconnects, setReconnects] = useState(0);
   const [lastEventAt, setLastEventAt] = useState<Date | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
@@ -211,7 +214,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
 
     es.onopen = () => {
       setConnected(true);
-      // Reset backoff delay on successful connection
+      setConnectedAt(new Date());
       backoffDelayRef.current = BACKOFF_INITIAL_MS;
       if (hasConnectedRef.current) {
         setReconnects((n) => n + 1);
@@ -272,6 +275,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
       value={{
         events,
         connected,
+        connectedAt,
         reconnects,
         lastEventAt,
         workers,

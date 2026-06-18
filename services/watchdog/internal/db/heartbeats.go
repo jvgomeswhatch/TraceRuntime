@@ -16,6 +16,16 @@ type WorkerHeartbeat struct {
 	UptimeSeconds  int64
 }
 
+func (d *DB) DeleteStaleHeartbeats(ctx context.Context, maxAge time.Duration) (int64, error) {
+	tag, err := d.pool.Exec(ctx,
+		`DELETE FROM worker_heartbeats WHERE last_seen_at < NOW() - $1::interval`,
+		maxAge.String())
+	if err != nil {
+		return 0, fmt.Errorf("db.DeleteStaleHeartbeats: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (d *DB) ListHeartbeats(ctx context.Context) ([]WorkerHeartbeat, error) {
 	rows, err := d.pool.Query(ctx,
 		`SELECT worker_id, last_seen_at, tasks_processed, tasks_failed, current_task_id::text, goroutines, uptime_seconds

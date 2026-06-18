@@ -71,14 +71,15 @@ function truncateId(id: string, len = 12): string {
 /** Connection status indicator with contextual messaging */
 function ConnectionStatus({
   connected,
+  connectedAt,
   reconnects,
   lastEventAt,
 }: {
   connected: boolean;
+  connectedAt: Date | null;
   reconnects: number;
   lastEventAt: Date | null;
 }) {
-  // Determine the display state
   const isInitialConnect = !connected && reconnects === 0 && !lastEventAt;
   const isReconnecting = !connected && (reconnects > 0 || lastEventAt !== null);
 
@@ -115,9 +116,9 @@ function ConnectionStatus({
           {reconnects} reconnect{reconnects !== 1 ? "s" : ""}
         </span>
       )}
-      {lastEventAt && (
+      {connectedAt && connected && (
         <span className="text-zinc-400">
-          {lastEventAt.toLocaleTimeString()}
+          {connectedAt.toLocaleTimeString()}
         </span>
       )}
     </div>
@@ -310,8 +311,14 @@ const HealingEventItem = React.memo(function HealingEventItem({
 });
 
 export function EventFeed() {
-  const { events, connected, reconnects, lastEventAt, recentHealingEvents } =
-    useSSEContext();
+  const {
+    events,
+    connected,
+    connectedAt,
+    reconnects,
+    lastEventAt,
+    recentHealingEvents,
+  } = useSSEContext();
   const [activeTab, setActiveTab] = useState<TabKey>("tasks");
 
   const mergedItems = useMemo<MergedItem[]>(() => {
@@ -355,6 +362,7 @@ export function EventFeed() {
           </CardTitle>
           <ConnectionStatus
             connected={connected}
+            connectedAt={connectedAt}
             reconnects={reconnects}
             lastEventAt={lastEventAt}
           />
