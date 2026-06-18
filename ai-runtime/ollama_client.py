@@ -32,7 +32,7 @@ def generate(model: str, prompt: str, timeout_ms: int, task_type: str) -> tuple[
         try:
             resp = httpx.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False},
+                json={"model": model, "prompt": prompt, "stream": False, "keep_alive": "30m"},
                 timeout=timeout_s,
             )
             resp.raise_for_status()

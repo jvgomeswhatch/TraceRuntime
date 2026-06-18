@@ -29,12 +29,23 @@ function timeAgo(dateStr: string): string {
   return `${hours}h ago`;
 }
 
+function displayEventType(eventType: string): string {
+  const map: Record<string, string> = {
+    "worker.stale": "Heartbeat Lost",
+    "worker.down": "Worker Offline",
+    "task.stuck": "Task Frozen",
+    "queue.lag": "Queue Overload",
+    "dlq.nonempty": "Dead Letters",
+  };
+  return map[eventType] ?? eventType;
+}
+
 function SeverityIcon({ severity }: { severity: HealingEvent["severity"] }) {
   switch (severity) {
     case "critical":
       return <AlertCircle className="size-4 text-red-400" />;
     case "warning":
-      return <AlertTriangle className="size-4 text-amber-400" />;
+      return <AlertTriangle className="size-4 text-orange-400" />;
     case "info":
       return <Info className="size-4 text-blue-400" />;
   }
@@ -45,7 +56,7 @@ function severityBadgeClass(severity: HealingEvent["severity"]): string {
     case "critical":
       return "text-red-400 border-red-500/40 bg-red-500/10 text-xs uppercase";
     case "warning":
-      return "text-amber-400 border-amber-500/40 bg-amber-500/10 text-xs uppercase";
+      return "text-orange-400 border-orange-500/40 bg-orange-500/10 text-xs uppercase";
     case "info":
       return "text-blue-400 border-blue-500/40 bg-blue-500/10 text-xs uppercase";
   }
@@ -139,7 +150,7 @@ const OperationsSummaryInner = React.memo(function OperationsSummaryInner() {
                   {staleCount > 0 && (
                     <Badge
                       variant="outline"
-                      className="text-amber-400 border-amber-500/40 bg-amber-500/10 text-xs ml-1"
+                      className="text-orange-400 border-orange-500/40 bg-orange-500/10 text-xs ml-1"
                     >
                       {staleCount} stale
                     </Badge>
@@ -217,7 +228,7 @@ const OperationsSummaryInner = React.memo(function OperationsSummaryInner() {
                     variant="outline"
                     className={severityBadgeClass(ev.severity)}
                   >
-                    {ev.event_type}
+                    {displayEventType(ev.event_type)}
                   </Badge>
                   {ev.worker_id && (
                     <span
@@ -243,6 +254,7 @@ const OperationsSummaryInner = React.memo(function OperationsSummaryInner() {
 export {
   OperationsSummaryInner as OperationsSummary,
   timeAgo,
+  displayEventType,
   severityBadgeClass,
   SeverityIcon,
 };

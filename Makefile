@@ -125,3 +125,13 @@ lint-frontend:
 fmt:
 	gofmt -w .
 	cd infra/terraform && terraform fmt -recursive
+
+# ── Load Testing ──────────────────────────────────────────────────────────────
+.PHONY: loadtest
+
+loadtest:
+	cd cmd/loadtest && go run . \
+		--tasks=$(or $(TASKS),50) \
+		--rate=$(or $(RATE),2) \
+		--concurrency=$(or $(CONCURRENCY),4) \
+		--output-dir=../../results

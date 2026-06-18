@@ -234,7 +234,7 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 }
 
 func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, traceparent string) (output, model string, durationMs int, err error) {
-	deadline := time.Now().Add(120 * time.Second)
+	deadline := time.Now().Add(300 * time.Second)
 	inferCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
@@ -251,7 +251,7 @@ func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, tracepare
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("traceparent", traceparent)
 
-	client := &http.Client{Timeout: 125 * time.Second}
+	client := &http.Client{Timeout: 305 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", 0, err

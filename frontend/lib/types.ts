@@ -58,3 +58,62 @@ export interface HealingSSEEvent {
   source: string;
   timestamp: string;
 }
+
+export interface CapacityLatencyBucket {
+  p50: number;
+  p95: number;
+  p99: number;
+  min: number;
+  max: number;
+}
+
+export interface CapacityReport {
+  timestamp: string;
+  config: {
+    tasks: number;
+    rate: number;
+    concurrency: number;
+    api_url: string;
+  };
+  results: {
+    duration_seconds: number;
+    tasks_submitted: number;
+    tasks_completed: number;
+    tasks_failed: number;
+    throughput_rps: number;
+    latency_ms: {
+      api_request: CapacityLatencyBucket;
+      submit_to_processing: CapacityLatencyBucket;
+      processing_duration: CapacityLatencyBucket;
+      end_to_end: CapacityLatencyBucket;
+    };
+  };
+  queue_metrics: {
+    max_visible_messages: number;
+    max_inflight_messages: number;
+    backlog_converged: boolean;
+  };
+  recommendations: {
+    visibility_timeout: {
+      current: number;
+      recommended: number;
+      formula: string;
+    };
+    queue_max_depth: {
+      current: number;
+      recommendation: string;
+      reason: string;
+    };
+    worker_concurrency: {
+      current: number;
+      observation: string;
+    };
+  };
+  status: "PASS" | "WARNING" | "FAIL";
+  status_criteria: {
+    error_rate_pct: number;
+    timeouts: number;
+    backlog_converged: boolean;
+    dlq_triggered: boolean;
+  };
+}

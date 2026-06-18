@@ -108,6 +108,9 @@ services:
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
+      - CAPACITY_RESULTS_DIR=/app/results
+    volumes:
+      - ./results:/app/results:ro
     networks: [traceruntime]
     depends_on:
       localstack:
@@ -145,7 +148,7 @@ services:
       - S3_BUCKET=traceruntime-outputs
       - API_INTERNAL_URL=http://api:8082
       - AI_RUNTIME_URL=http://ai-runtime:8000
-      - AI_RUNTIME_ENABLED=false
+      - AI_RUNTIME_ENABLED=true
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
       - WATCHDOG_HEARTBEAT_INTERVAL_SECONDS=10
@@ -230,6 +233,7 @@ services:
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_HOST=http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [traceruntime]

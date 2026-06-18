@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSSEContext } from "@/components/providers/sse-provider";
 import {
   timeAgo,
+  displayEventType,
   severityBadgeClass,
   SeverityIcon,
 } from "@/components/operations-summary";
@@ -233,7 +234,7 @@ const HealingEventItem = React.memo(function HealingEventItem({
 
   const statusBadgeClass =
     ev.status === "active"
-      ? "text-amber-400 border-amber-500/40 bg-amber-500/10"
+      ? "text-red-400 border-red-500/40 bg-red-500/10 animate-pulse"
       : "text-emerald-400 border-emerald-500/40 bg-emerald-500/10";
 
   const detailEntries = Object.entries(ev.details).slice(0, 5);
@@ -243,7 +244,7 @@ const HealingEventItem = React.memo(function HealingEventItem({
       <div className="flex items-center gap-3 px-4 py-3">
         <SeverityIcon severity={ev.severity} />
         <Badge variant="outline" className={severityBadgeClass(ev.severity)}>
-          {ev.event_type}
+          {displayEventType(ev.event_type)}
         </Badge>
         <Badge
           variant="outline"

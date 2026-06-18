@@ -13,7 +13,7 @@ import (
 	"github.com/runtime-platform/services/api/internal/queue"
 )
 
-func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, database *db.DB) http.Handler {
+func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, database *db.DB, resultsDir string) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -31,6 +31,7 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	})
 	r.Post("/internal/events", NewEventsHandler(broker).ServeHTTP)
 	r.Get("/api/operations/summary", NewOperationsSummaryHandler(database).ServeHTTP)
+	r.Get("/api/capacity/latest", NewCapacityHandler(resultsDir).ServeHTTP)
 
 	return r
 }

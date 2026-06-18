@@ -81,7 +81,8 @@ func main() {
 		slog.Info("queue backend: inmemory")
 	}
 
-	router := apihttp.NewRouter(broker, publisher, q, database)
+	resultsDir := envString("CAPACITY_RESULTS_DIR", "./results")
+	router := apihttp.NewRouter(broker, publisher, q, database, resultsDir)
 
 	port := envString("PORT", "8082")
 	srv := &http.Server{

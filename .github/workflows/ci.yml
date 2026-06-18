@@ -108,6 +108,50 @@ jobs:
       - name: Python test
         run: cd ai-runtime && python -m pytest -v
 
+  skill-security-scan:
+    name: Skill Security Scan (SkillSpector)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SkillSpector
+        run: pip install skillspector
+
+      - name: Scan skills
+        run: skillspector scan .claude/skills/ --no-llm --format sarif --output skillspector-skills.sarif
+
+      - name: Scan agents
+        run: skillspector scan .claude/agents/ --no-llm --format sarif --output skillspector-agents.sarif
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillspector-skills.sarif
+          category: skillspector-skills
+
+      - name: Upload SARIF results (agents)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillspector-agents.sarif
+          category: skillspector-agents
+
+      - name: Console summary
+        if: always()
+        run: |
+          echo "=== Skills Scan ==="
+          skillspector scan .claude/skills/ --no-llm --format terminal || true
+          echo ""
+          echo "=== Agents Scan ==="
+          skillspector scan .claude/agents/ --no-llm --format terminal || true
+
   integration:
     name: Integration
     runs-on: ubuntu-latest
