@@ -39,4 +39,7 @@ out/
 terraform.tfvars
 
 # Loadtest results
-results/*.json
+results/
+
+# Screenshots
+*.png

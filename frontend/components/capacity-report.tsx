@@ -14,11 +14,14 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { CapacityReport as CapacityReportType, CapacityLatencyBucket } from "@/lib/types";
+import type {
+  CapacityReport as CapacityReportType,
+  CapacityLatencyBucket,
+} from "@/lib/types";
 
 function formatMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function formatDuration(seconds: number): string {
@@ -39,31 +42,34 @@ function statusBadgeClass(status: CapacityReportType["status"]): string {
   }
 }
 
-function StatusIcon({ status }: { status: CapacityReportType["status"] }) {
-  switch (status) {
-    case "PASS":
-      return <CheckCircle2 className="size-4 text-emerald-400" />;
-    case "WARNING":
-      return <AlertTriangle className="size-4 text-amber-400" />;
-    case "FAIL":
-      return <XCircle className="size-4 text-red-400" />;
-  }
-}
-
 interface LatencyRowProps {
   label: string;
+  color: string;
   bucket: CapacityLatencyBucket;
 }
 
-const LatencyRow = React.memo(function LatencyRow({ label, bucket }: LatencyRowProps) {
+const LatencyRow = React.memo(function LatencyRow({
+  label,
+  color,
+  bucket,
+}: LatencyRowProps) {
   return (
-    <tr className="border-b border-zinc-800/60 last:border-b-0">
-      <td className="py-2.5 pr-4 text-sm text-zinc-300 font-medium">{label}</td>
-      <td className="py-2.5 px-3 text-sm text-zinc-300 tabular-nums text-right">{formatMs(bucket.p50)}</td>
-      <td className="py-2.5 px-3 text-sm text-amber-400 tabular-nums text-right font-medium">{formatMs(bucket.p95)}</td>
-      <td className="py-2.5 px-3 text-sm text-red-400 tabular-nums text-right font-medium">{formatMs(bucket.p99)}</td>
-      <td className="py-2.5 px-3 text-sm text-zinc-400 tabular-nums text-right">{formatMs(bucket.min)}</td>
-      <td className="py-2.5 pl-3 text-sm text-zinc-400 tabular-nums text-right">{formatMs(bucket.max)}</td>
+    <tr className="border-b border-zinc-800/40 last:border-b-0">
+      <td className="py-2 pr-3 text-[11px] text-zinc-300 font-medium">
+        <span className="flex items-center gap-1.5">
+          <span className={`inline-block size-1.5 rounded-full ${color}`} />
+          {label}
+        </span>
+      </td>
+      <td className="py-2 px-2 text-[11px] text-zinc-400 tabular-nums text-right">
+        {formatMs(bucket.p50)}
+      </td>
+      <td className="py-2 px-2 text-[11px] text-amber-400 tabular-nums text-right font-medium">
+        {formatMs(bucket.p95)}
+      </td>
+      <td className="py-2 pl-2 text-[11px] text-red-400 tabular-nums text-right font-medium">
+        {formatMs(bucket.p99)}
+      </td>
     </tr>
   );
 });
@@ -103,17 +109,17 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 border-t-blue-500/30 border-t-2">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2.5 text-lg font-semibold text-zinc-100">
-            <Gauge className="size-5 text-blue-400" />
+      <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 h-full">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <Gauge className="size-4 text-blue-400" />
             Capacity Report
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center gap-3 py-10 text-zinc-500 text-base">
-            <Loader2 className="size-5 animate-spin" />
-            Loading capacity report...
+          <div className="flex items-center justify-center gap-3 py-6 text-zinc-500 text-sm">
+            <Loader2 className="size-4 animate-spin" />
+            Loading...
           </div>
         </CardContent>
       </Card>
@@ -122,17 +128,22 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
 
   if (empty || !report) {
     return (
-      <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 border-t-blue-500/30 border-t-2">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2.5 text-lg font-semibold text-zinc-100">
-            <Gauge className="size-5 text-blue-400" />
+      <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 h-full">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <Gauge className="size-4 text-blue-400" />
             Capacity Report
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center justify-center gap-3 py-10 text-zinc-500 text-base">
-            <Inbox className="size-8 text-zinc-600" />
-            <p>No capacity results available. Run <code className="text-zinc-400 bg-zinc-800/60 px-2 py-0.5 rounded text-sm font-mono">make loadtest</code> to generate baselines.</p>
+          <div className="flex flex-col items-center justify-center gap-2 py-6 text-zinc-500 text-sm">
+            <Inbox className="size-6 text-zinc-600" />
+            <p className="text-center text-xs">
+              No data.{" "}
+              <code className="text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
+                make loadtest
+              </code>
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -145,73 +156,68 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
       : 0;
 
   const ts = new Date(report.timestamp);
-  const timestampStr = ts.toLocaleString();
+  const timestampStr = `${ts.toLocaleDateString()}, ${ts.toLocaleTimeString()}`;
 
   return (
-    <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 border-t-blue-500/30 border-t-2">
-      <CardHeader>
+    <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 h-full">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2.5 text-lg font-semibold text-zinc-100">
-            <Gauge className="size-5 text-blue-400" />
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <Gauge className="size-4 text-blue-400" />
             Capacity Report
+            <span className="text-[11px] text-zinc-500 font-normal">
+              (Latest)
+            </span>
           </CardTitle>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-zinc-500">{timestampStr}</span>
-            <Badge
-              variant="outline"
-              className={statusBadgeClass(report.status)}
-            >
-              <StatusIcon status={report.status} />
-              {report.status}
-            </Badge>
-          </div>
+          <Badge variant="outline" className={statusBadgeClass(report.status)}>
+            {report.status}
+          </Badge>
         </div>
+        <p className="text-[11px] text-zinc-500 mt-1">{timestampStr}</p>
       </CardHeader>
-      <CardContent>
-        {/* Config cards row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="group rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4 transition-all duration-200 hover:border-zinc-700/80 hover:bg-zinc-800/50 hover:shadow-md hover:shadow-black/10">
-            <div className="flex items-center gap-2 text-zinc-400 mb-2">
-              <BarChart3 className="size-4" />
-              <span className="text-sm font-medium">Tasks</span>
+      <CardContent className="space-y-4">
+        {/* Summary KPIs */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-3">
+            <div className="flex items-center gap-1.5 text-zinc-500 mb-1">
+              <BarChart3 className="size-3" />
+              <span className="text-[11px] font-medium">Tasks</span>
             </div>
-            <div className="text-2xl font-bold text-blue-400 tabular-nums">
+            <div className="text-lg font-bold text-zinc-100 tabular-nums">
               {report.config.tasks}
             </div>
-            <div className="text-xs text-zinc-500 mt-1">
-              {report.config.rate} req/s target
-            </div>
+            <div className="text-[11px] text-zinc-500">submitted</div>
           </div>
 
-          <div className="group rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4 transition-all duration-200 hover:border-zinc-700/80 hover:bg-zinc-800/50 hover:shadow-md hover:shadow-black/10">
-            <div className="flex items-center gap-2 text-zinc-400 mb-2">
-              <Activity className="size-4" />
-              <span className="text-sm font-medium">Throughput</span>
+          <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-3">
+            <div className="flex items-center gap-1.5 text-zinc-500 mb-1">
+              <Clock className="size-3" />
+              <span className="text-[11px] font-medium">Duration</span>
             </div>
-            <div className="text-2xl font-bold text-blue-400 tabular-nums">
-              {report.results.throughput_rps.toFixed(1)}
-            </div>
-            <div className="text-xs text-zinc-500 mt-1">req/s actual</div>
-          </div>
-
-          <div className="group rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4 transition-all duration-200 hover:border-zinc-700/80 hover:bg-zinc-800/50 hover:shadow-md hover:shadow-black/10">
-            <div className="flex items-center gap-2 text-zinc-400 mb-2">
-              <Clock className="size-4" />
-              <span className="text-sm font-medium">Duration</span>
-            </div>
-            <div className="text-2xl font-bold text-zinc-100 tabular-nums">
+            <div className="text-lg font-bold text-zinc-100 tabular-nums">
               {formatDuration(report.results.duration_seconds)}
             </div>
-            <div className="text-xs text-zinc-500 mt-1">test runtime</div>
+            <div className="text-[11px] text-zinc-500">total runtime</div>
           </div>
 
-          <div className="group rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4 transition-all duration-200 hover:border-zinc-700/80 hover:bg-zinc-800/50 hover:shadow-md hover:shadow-black/10">
-            <div className="flex items-center gap-2 text-zinc-400 mb-2">
-              <AlertTriangle className="size-4" />
-              <span className="text-sm font-medium">Error Rate</span>
+          <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-3">
+            <div className="flex items-center gap-1.5 text-zinc-500 mb-1">
+              <Activity className="size-3" />
+              <span className="text-[11px] font-medium">Throughput</span>
+            </div>
+            <div className="text-lg font-bold text-blue-400 tabular-nums">
+              {report.results.throughput_rps.toFixed(2)}
+            </div>
+            <div className="text-[11px] text-zinc-500">req/s</div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-3">
+            <div className="flex items-center gap-1.5 text-zinc-500 mb-1">
+              <AlertTriangle className="size-3" />
+              <span className="text-[11px] font-medium">Error Rate</span>
             </div>
             <div
-              className={`text-2xl font-bold tabular-nums ${
+              className={`text-lg font-bold tabular-nums ${
                 errorRate > 5
                   ? "text-red-400"
                   : errorRate > 0
@@ -221,134 +227,101 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
             >
               {errorRate.toFixed(1)}%
             </div>
-            <div className="text-xs text-zinc-500 mt-1">
-              {report.results.tasks_failed}/{report.results.tasks_submitted} failed
+            <div className="text-[11px] text-zinc-500">
+              ({report.results.tasks_failed} failed)
             </div>
           </div>
         </div>
 
-        {/* Latency breakdown table */}
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+        {/* Latency Breakdown */}
+        <div>
+          <h3 className="text-[11px] font-medium text-zinc-500 mb-2 uppercase tracking-wide">
             Latency Breakdown
           </h3>
-          <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 overflow-hidden">
+          <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 overflow-hidden">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-zinc-700/60">
-                  <th className="py-2.5 pr-4 pl-4 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">
+                <tr className="border-b border-zinc-700/50">
+                  <th className="py-1.5 pl-3 pr-2 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wide">
                     Phase
                   </th>
-                  <th className="py-2.5 px-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                    p50
+                  <th className="py-1.5 px-2 text-right text-[11px] font-medium text-zinc-500">
+                    P50
                   </th>
-                  <th className="py-2.5 px-3 text-right text-xs font-medium text-amber-500/70 uppercase tracking-wide">
-                    p95
+                  <th className="py-1.5 px-2 text-right text-[11px] font-medium text-amber-500/70">
+                    P95
                   </th>
-                  <th className="py-2.5 px-3 text-right text-xs font-medium text-red-500/70 uppercase tracking-wide">
-                    p99
-                  </th>
-                  <th className="py-2.5 px-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                    Min
-                  </th>
-                  <th className="py-2.5 pl-3 pr-4 text-right text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                    Max
+                  <th className="py-1.5 pl-2 pr-3 text-right text-[11px] font-medium text-red-500/70">
+                    P99
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/40">
-                <LatencyRow label="API Request" bucket={report.results.latency_ms.api_request} />
-                <LatencyRow label="Queue Wait" bucket={report.results.latency_ms.submit_to_processing} />
-                <LatencyRow label="Processing" bucket={report.results.latency_ms.processing_duration} />
-                <LatencyRow label="End-to-End" bucket={report.results.latency_ms.end_to_end} />
+              <tbody>
+                <LatencyRow
+                  label="API Request"
+                  color="bg-blue-400"
+                  bucket={report.results.latency_ms.api_request}
+                />
+                <LatencyRow
+                  label="Queue Wait"
+                  color="bg-amber-400"
+                  bucket={report.results.latency_ms.submit_to_processing}
+                />
+                <LatencyRow
+                  label="Processing"
+                  color="bg-emerald-400"
+                  bucket={report.results.latency_ms.processing_duration}
+                />
+                <LatencyRow
+                  label="End-to-End"
+                  color="bg-violet-400"
+                  bucket={report.results.latency_ms.end_to_end}
+                />
               </tbody>
             </table>
           </div>
         </div>
 
         {/* Queue Behavior */}
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-zinc-400 mb-3 uppercase tracking-wide">
+        <div>
+          <h3 className="text-[11px] font-medium text-zinc-500 mb-2 uppercase tracking-wide">
             Queue Behavior
           </h3>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4">
-              <div className="text-xs text-zinc-500 mb-1">Peak Backlog</div>
-              <div className="text-xl font-bold text-zinc-100 tabular-nums">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-2.5 text-center">
+              <div className="text-[11px] text-zinc-500 mb-0.5">
+                Peak Backlog
+              </div>
+              <div className="text-sm font-bold text-zinc-100 tabular-nums">
                 {report.queue_metrics.max_visible_messages}
               </div>
             </div>
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4">
-              <div className="text-xs text-zinc-500 mb-1">Peak In-Flight</div>
-              <div className="text-xl font-bold text-zinc-100 tabular-nums">
+            <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-2.5 text-center">
+              <div className="text-[11px] text-zinc-500 mb-0.5">
+                Peak In-Flight
+              </div>
+              <div className="text-sm font-bold text-zinc-100 tabular-nums">
                 {report.queue_metrics.max_inflight_messages}
               </div>
             </div>
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4">
-              <div className="text-xs text-zinc-500 mb-1">Converged</div>
-              <div className="flex items-center gap-2">
+            <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-2.5 text-center">
+              <div className="text-[11px] text-zinc-500 mb-0.5">Converged</div>
+              <div className="flex items-center justify-center gap-1">
                 {report.queue_metrics.backlog_converged ? (
                   <>
-                    <CheckCircle2 className="size-4 text-emerald-400" />
-                    <span className="text-lg font-semibold text-emerald-400">Yes</span>
+                    <CheckCircle2 className="size-3 text-emerald-400" />
+                    <span className="text-sm font-semibold text-emerald-400">
+                      Yes
+                    </span>
                   </>
                 ) : (
                   <>
-                    <XCircle className="size-4 text-red-400" />
-                    <span className="text-lg font-semibold text-red-400">No</span>
+                    <XCircle className="size-3 text-red-400" />
+                    <span className="text-sm font-semibold text-red-400">
+                      No
+                    </span>
                   </>
                 )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Recommendations */}
-        <div>
-          <h3 className="text-sm font-medium text-zinc-400 mb-3 uppercase tracking-wide">
-            Recommendations
-          </h3>
-          <div className="space-y-3">
-            {/* Visibility Timeout */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-zinc-300">Visibility Timeout</span>
-                <div className="flex items-center gap-2 text-sm tabular-nums">
-                  <span className="text-zinc-400">{report.recommendations.visibility_timeout.current}s</span>
-                  <span className="text-zinc-600">-&gt;</span>
-                  <span className="text-blue-400 font-semibold">{report.recommendations.visibility_timeout.recommended}s</span>
-                </div>
-              </div>
-              <div className="text-xs text-zinc-500 font-mono">
-                {report.recommendations.visibility_timeout.formula}
-              </div>
-            </div>
-
-            {/* Queue Depth */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-zinc-300">Queue Max Depth</span>
-                <span className="text-sm text-zinc-400 tabular-nums">
-                  Current: {report.recommendations.queue_max_depth.current}
-                </span>
-              </div>
-              <div className="text-xs text-zinc-500">
-                <span className="text-zinc-400">{report.recommendations.queue_max_depth.recommendation}</span>
-                {" -- "}
-                {report.recommendations.queue_max_depth.reason}
-              </div>
-            </div>
-
-            {/* Worker Scaling */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-800/30 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-zinc-300">Worker Scaling</span>
-                <span className="text-sm text-zinc-400 tabular-nums">
-                  Concurrency: {report.recommendations.worker_concurrency.current}
-                </span>
-              </div>
-              <div className="text-xs text-zinc-500">
-                {report.recommendations.worker_concurrency.observation}
               </div>
             </div>
           </div>

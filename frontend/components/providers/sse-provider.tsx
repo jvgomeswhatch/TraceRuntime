@@ -20,6 +20,7 @@ const MAX_EVENTS = 100;
 const MAX_HEALING_EVENTS = 50;
 const SSE_URL = "http://localhost:8082/events";
 const OPS_SUMMARY_URL = "http://localhost:8082/api/operations/summary";
+const RECENT_EVENTS_URL = "http://localhost:8082/api/events/recent?limit=50";
 
 const BACKOFF_INITIAL_MS = 1000;
 const BACKOFF_MAX_MS = 30000;
@@ -124,24 +125,38 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    async function fetchSummary() {
-      try {
-        const res = await fetch(OPS_SUMMARY_URL);
-        if (!res.ok) return;
-        const data: unknown = await res.json();
-        if (cancelled) return;
-        if (isOperationsSummary(data)) {
-          setWorkers(data.workers);
-          setActiveHealingEvents(data.active_events);
-          setRecentHealingEvents(data.recent_events);
-        }
-      } catch {
-        // bootstrap fetch failed -- SSE will fill in state incrementally
-      } finally {
-        if (!cancelled) setOpsLoading(false);
+    async function bootstrap() {
+      const [opsResult, eventsResult] = await Promise.allSettled([
+        fetch(OPS_SUMMARY_URL),
+        fetch(RECENT_EVENTS_URL),
+      ]);
+
+      if (cancelled) return;
+
+      if (opsResult.status === "fulfilled" && opsResult.value.ok) {
+        try {
+          const data: unknown = await opsResult.value.json();
+          if (!cancelled && isOperationsSummary(data)) {
+            setWorkers(data.workers);
+            setActiveHealingEvents(data.active_events);
+            setRecentHealingEvents(data.recent_events);
+          }
+        } catch { /* ignore */ }
       }
+
+      if (eventsResult.status === "fulfilled" && eventsResult.value.ok) {
+        try {
+          const data: unknown = await eventsResult.value.json();
+          if (!cancelled && Array.isArray(data)) {
+            const valid = data.filter(isTaskSSEEvent) as SSEEvent[];
+            setEvents(valid.slice(0, MAX_EVENTS));
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (!cancelled) setOpsLoading(false);
     }
-    fetchSummary();
+    bootstrap();
     return () => {
       cancelled = true;
     };
@@ -232,7 +247,10 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
         if (isHealingSSEEvent(raw)) {
           handleHealingEvent(raw);
         } else if (isTaskSSEEvent(raw)) {
-          setEvents((prev) => [raw, ...prev].slice(0, MAX_EVENTS));
+          setEvents((prev) => {
+            if (prev.some((e) => e.event_id === raw.event_id)) return prev;
+            return [raw, ...prev].slice(0, MAX_EVENTS);
+          });
         }
         // unknown event shape -- silently ignore
       } catch {

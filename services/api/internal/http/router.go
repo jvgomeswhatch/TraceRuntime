@@ -30,6 +30,7 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 		w.WriteHeader(http.StatusNoContent)
 	})
 	r.Post("/internal/events", NewEventsHandler(broker).ServeHTTP)
+	r.Get("/api/events/recent", NewRecentEventsHandler(database).ServeHTTP)
 	r.Get("/api/operations/summary", NewOperationsSummaryHandler(database).ServeHTTP)
 	r.Get("/api/capacity/latest", NewCapacityHandler(resultsDir).ServeHTTP)
 

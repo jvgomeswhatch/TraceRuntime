@@ -1,4 +1,3 @@
-version: "3.9"
 # TODO: centralize env vars (POSTGRES credentials, DATABASE_URL, AWS keys) in .env/.env.example
 #       during a future operational configuration pass when all services are stable.
 
@@ -208,6 +207,8 @@ services:
       - OTEL_SERVICE_NAME=watchdog
     networks: [traceruntime]
     depends_on:
+      localstack:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       api:

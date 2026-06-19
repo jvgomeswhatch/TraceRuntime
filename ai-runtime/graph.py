@@ -14,7 +14,12 @@ _tracer = get_tracer("traceruntime-ai-runtime/graph")
 
 GENERAL_MODEL = os.getenv("GENERAL_MODEL", "qwen2.5:3b")
 CODING_MODEL = os.getenv("CODING_MODEL", "deepseek-coder:6.7b")
-_CODING_KEYWORDS = {"code", "function", "def ", "class ", "bug", "debug", "implement", "algorithm", "script"}
+_CODING_KEYWORDS = {
+    "code", "function", "def ", "class ", "bug", "debug", "implement",
+    "algorithm", "script", "program", "write a", "create a", "build a",
+    "hello world", "print", "compile", "syntax", "variable", "loop",
+    "array", "sort", "api", "endpoint", "database", "query", "sql",
+}
 
 
 def _classify_node(state: GraphState) -> dict:

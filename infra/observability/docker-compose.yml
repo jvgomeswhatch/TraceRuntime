@@ -1,5 +1,3 @@
-version: "3.9"
-
 networks:
   traceruntime:
     external: true
@@ -11,13 +9,20 @@ services:
     volumes:
       - ./otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC — apps mandam spans aqui
+      - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # Prometheus scrape do collector
+      - "8889:8889"   # Prometheus scrape
       - "13133:13133" # Health check endpoint
     networks: [traceruntime]
     depends_on: [tempo]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
+    init: true
     mem_limit: 384m
     cpus: "0.5"
 
@@ -34,8 +39,15 @@ services:
       - "9090:9090"
     networks: [traceruntime]
     depends_on: [otel-collector]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
-    mem_limit: 512m
+    init: true
+    mem_limit: 256m
     cpus: "0.5"
 
   tempo:
@@ -44,12 +56,19 @@ services:
     volumes:
       - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
     ports:
-      - "3200:3200"   # HTTP API + query (acesso externo ao host)
+      - "3200:3200"
     expose:
-      - "4317"        # OTLP gRPC — acessível apenas na rede interna Docker (collector → tempo)
-      - "4318"        # OTLP HTTP — interno
+      - "4317"
+      - "4318"
     networks: [traceruntime]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
+    init: true
     mem_limit: 512m
     cpus: "0.5"
 
@@ -61,8 +80,15 @@ services:
     ports:
       - "3100:3100"
     networks: [traceruntime]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
-    mem_limit: 512m
+    init: true
+    mem_limit: 256m
     cpus: "0.5"
 
   grafana:
@@ -81,6 +107,13 @@ services:
       - "3000:3000"
     networks: [traceruntime]
     depends_on: [prometheus, tempo, loki]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
+    init: true
     mem_limit: 256m
     cpus: "0.5"

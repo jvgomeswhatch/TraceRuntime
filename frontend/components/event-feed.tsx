@@ -12,6 +12,9 @@ import {
   Loader2,
   XCircle,
   Inbox,
+  AlertCircle,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +27,7 @@ import {
 } from "@/components/operations-summary";
 import type { SSEEvent, HealingEvent } from "@/lib/types";
 
-type TabKey = "tasks" | "operations" | "all";
+type TabKey = "all" | "tasks" | "operations" | "errors";
 
 interface MergedItem {
   kind: "task" | "healing";
@@ -35,9 +38,18 @@ interface MergedItem {
 }
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-  { key: "tasks", label: "Tasks", icon: <Zap className="size-4" /> },
-  { key: "operations", label: "Operations", icon: <Radio className="size-4" /> },
-  { key: "all", label: "All", icon: <Layers className="size-4" /> },
+  { key: "all", label: "All", icon: <Layers className="size-3.5" /> },
+  { key: "tasks", label: "Tasks", icon: <Zap className="size-3.5" /> },
+  {
+    key: "operations",
+    label: "Operations",
+    icon: <Radio className="size-3.5" />,
+  },
+  {
+    key: "errors",
+    label: "Errors",
+    icon: <AlertCircle className="size-3.5" />,
+  },
 ];
 
 function eventTypeColor(eventType: string): string {
@@ -54,73 +66,79 @@ function eventTypeColor(eventType: string): string {
 
 function EventTypeIcon({ eventType }: { eventType: string }) {
   if (eventType.includes("completed"))
-    return <CheckCircle2 className="size-4 text-emerald-400" />;
+    return <CheckCircle2 className="size-3.5 text-emerald-400" />;
   if (eventType.includes("failed"))
-    return <XCircle className="size-4 text-red-400" />;
+    return <XCircle className="size-3.5 text-red-400" />;
   if (eventType.includes("processing"))
-    return <Loader2 className="size-4 text-blue-400 animate-spin" />;
+    return <Loader2 className="size-3.5 text-blue-400 animate-spin" />;
   if (eventType.includes("created"))
-    return <Zap className="size-4 text-violet-400" />;
-  return <Radio className="size-4 text-zinc-400" />;
+    return <Zap className="size-3.5 text-violet-400" />;
+  return <Radio className="size-3.5 text-zinc-400" />;
 }
 
-function truncateId(id: string, len = 12): string {
+function truncateId(id: string, len = 10): string {
   if (id.length <= len) return id;
   return id.slice(0, len) + "...";
 }
 
-/** Connection status indicator with contextual messaging */
-function ConnectionStatus({
-  connected,
-  connectedAt,
-  reconnects,
-  lastEventAt,
-}: {
-  connected: boolean;
-  connectedAt: Date | null;
-  reconnects: number;
-  lastEventAt: Date | null;
-}) {
-  const isInitialConnect = !connected && reconnects === 0 && !lastEventAt;
-  const isReconnecting = !connected && (reconnects > 0 || lastEventAt !== null);
+function CopyableId({ label, id }: { label?: string; id: string }) {
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
-  let dotClass: string;
-  let label: string;
-  let labelClass: string;
-
-  if (connected) {
-    dotClass = "bg-emerald-400 shadow-sm shadow-emerald-400/50";
-    label = "Connected";
-    labelClass = "text-zinc-400";
-  } else if (isInitialConnect) {
-    dotClass = "bg-amber-400/70 shadow-sm shadow-amber-400/30 animate-pulse";
-    label = "Connecting...";
-    labelClass = "text-zinc-500";
-  } else if (isReconnecting) {
-    dotClass = "bg-amber-400 shadow-sm shadow-amber-400/50 animate-pulse";
-    label = "Reconnecting...";
-    labelClass = "text-amber-400/80";
-  } else {
-    dotClass = "bg-red-400 shadow-sm shadow-red-400/50";
-    label = "Disconnected";
-    labelClass = "text-red-400";
+  function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   }
 
   return (
-    <div className="flex items-center gap-4 text-sm">
-      <div className="flex items-center gap-2">
-        <span className={`inline-block size-2 rounded-full ${dotClass}`} />
-        <span className={labelClass}>{label}</span>
-      </div>
+    <span className="inline-flex items-center gap-1 font-mono text-[11px] text-zinc-500">
+      {label && <span className="text-zinc-600">{label}:</span>}
+      <button
+        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+        className="hover:text-zinc-300 transition-colors cursor-pointer"
+        title="Click to expand"
+      >
+        {expanded ? id : truncateId(id)}
+      </button>
+      <button
+        onClick={handleCopy}
+        className="hover:text-zinc-300 transition-colors shrink-0"
+        title="Copy to clipboard"
+      >
+        {copied ? (
+          <Check className="size-3 text-emerald-400" />
+        ) : (
+          <Copy className="size-3" />
+        )}
+      </button>
+    </span>
+  );
+}
+
+function ConnectionStatus({
+  connected,
+  reconnects,
+}: {
+  connected: boolean;
+  reconnects: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span
+        className={`inline-block size-1.5 rounded-full ${
+          connected
+            ? "bg-emerald-400"
+            : "bg-amber-400 animate-pulse"
+        }`}
+      />
+      <span className={connected ? "text-zinc-400" : "text-amber-400"}>
+        {connected ? "Connected" : "Reconnecting..."}
+      </span>
       {reconnects > 0 && (
-        <span className="text-zinc-400">
-          {reconnects} reconnect{reconnects !== 1 ? "s" : ""}
-        </span>
-      )}
-      {connectedAt && connected && (
-        <span className="text-zinc-400">
-          {connectedAt.toLocaleTimeString()}
-        </span>
+        <span className="text-zinc-500">({reconnects})</span>
       )}
     </div>
   );
@@ -136,12 +154,12 @@ function EmptyState({
   subtitle: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16">
-      <div className="flex items-center justify-center size-16 rounded-2xl bg-zinc-800/50 border border-zinc-800/80 mb-4">
-        <Icon className="size-7 text-zinc-500" />
+    <div className="flex flex-col items-center justify-center py-8">
+      <div className="flex items-center justify-center size-10 rounded-xl bg-zinc-800/50 border border-zinc-800/80 mb-2.5">
+        <Icon className="size-4 text-zinc-500" />
       </div>
-      <p className="text-sm font-medium text-zinc-400">{title}</p>
-      <p className="text-xs mt-1.5 text-zinc-500">{subtitle}</p>
+      <p className="text-xs font-medium text-zinc-400">{title}</p>
+      <p className="text-[11px] mt-1 text-zinc-500">{subtitle}</p>
     </div>
   );
 }
@@ -154,72 +172,63 @@ const TaskEventItem = React.memo(function TaskEventItem({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <li className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 overflow-hidden hover:border-zinc-700/80 transition-all duration-150 hover:bg-zinc-800/40">
-      <div className="flex items-center gap-3 px-4 py-3">
+    <li className="group border-b border-zinc-800/40 last:border-b-0">
+      <div className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-zinc-800/30 transition-colors">
         <EventTypeIcon eventType={ev.event_type} />
         <Badge
           variant="outline"
-          className={`${eventTypeColor(ev.event_type)} text-xs uppercase font-semibold`}
+          className={`${eventTypeColor(ev.event_type)} text-[11px] uppercase font-semibold px-1.5 py-0`}
         >
           {ev.event_type.replace("task.", "")}
         </Badge>
 
         {ev.model && (
-          <span className="text-sm text-zinc-500">{ev.model}</span>
+          <span className="text-xs text-zinc-500 font-mono">{ev.model}</span>
         )}
 
         {ev.inference_duration_ms != null && ev.inference_duration_ms > 0 && (
-          <span className="text-sm text-zinc-500 tabular-nums">
+          <span className="text-xs text-zinc-500 tabular-nums">
             {ev.inference_duration_ms < 1000
               ? `${ev.inference_duration_ms}ms`
               : `${(ev.inference_duration_ms / 1000).toFixed(1)}s`}
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-1.5 text-sm text-zinc-400">
-          <Clock className="size-3.5" />
-          {timeAgo(ev.timestamp)}
+        <div className="ml-auto flex items-center gap-3">
+          <CopyableId label="trace" id={ev.trace_id} />
+          <span className="flex items-center gap-1 tabular-nums text-[11px] text-zinc-500">
+            {new Date(ev.timestamp).toLocaleTimeString()}
+          </span>
         </div>
       </div>
 
-      <div className="flex items-center gap-4 px-4 pb-2.5 text-sm text-zinc-400">
-        <span className="font-mono text-xs" title={ev.task_id}>
-          task:{truncateId(ev.task_id)}
-        </span>
-        <span className="font-mono text-xs" title={ev.trace_id}>
-          trace:{truncateId(ev.trace_id)}
-        </span>
-        {ev.execution_status && <span>{ev.execution_status}</span>}
-        {ev.validation_status && <span>validation: {ev.validation_status}</span>}
-      </div>
-
       {ev.error_reason && (
-        <div className="mx-4 mb-3 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm text-red-400">
+        <div className="mx-4 mb-2 rounded bg-red-500/10 border border-red-500/20 px-3 py-1.5 text-xs text-red-400">
           {ev.error_reason}
         </div>
       )}
 
       {ev.output && (
-        <div className="border-t border-zinc-800/80">
+        <>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-zinc-500 hover:text-zinc-400 transition-colors"
+            className="flex items-center gap-1.5 w-full px-4 py-1.5 text-[11px] text-zinc-500 hover:text-zinc-400 transition-colors"
           >
             {expanded ? (
-              <ChevronDown className="size-4" />
+              <ChevronDown className="size-3" />
             ) : (
-              <ChevronRight className="size-4" />
+              <ChevronRight className="size-3" />
             )}
             Output
           </button>
           {expanded && (
-            <div className="px-4 pb-4">
-              <pre className="rounded-lg bg-zinc-950/60 border border-zinc-800/80 p-4 text-sm text-zinc-300 whitespace-pre-wrap break-words max-h-60 overflow-y-auto font-mono leading-relaxed">
+            <div className="px-4 pb-3">
+              <pre className="rounded bg-zinc-950/60 border border-zinc-800/80 p-3 text-xs text-zinc-300 whitespace-pre-wrap break-words max-h-40 overflow-y-auto font-mono leading-relaxed">
                 {ev.output}
               </pre>
             </div>
           )}
-        </div>
+        </>
       )}
     </li>
   );
@@ -230,83 +239,31 @@ const HealingEventItem = React.memo(function HealingEventItem({
 }: {
   ev: HealingEvent;
 }) {
-  const [showDetails, setShowDetails] = useState(false);
-
-  const statusBadgeClass =
-    ev.status === "active"
-      ? "text-red-400 border-red-500/40 bg-red-500/10 animate-pulse"
-      : "text-emerald-400 border-emerald-500/40 bg-emerald-500/10";
-
-  const detailEntries = Object.entries(ev.details).slice(0, 5);
-
   return (
-    <li className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 overflow-hidden hover:border-zinc-700/80 transition-all duration-150 hover:bg-zinc-800/40">
-      <div className="flex items-center gap-3 px-4 py-3">
+    <li className="group border-b border-zinc-800/40 last:border-b-0">
+      <div className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-zinc-800/30 transition-colors">
         <SeverityIcon severity={ev.severity} />
-        <Badge variant="outline" className={severityBadgeClass(ev.severity)}>
+        <Badge variant="outline" className={`${severityBadgeClass(ev.severity)} text-[11px] px-1.5 py-0`}>
           {displayEventType(ev.event_type)}
         </Badge>
         <Badge
           variant="outline"
-          className={`${statusBadgeClass} text-xs uppercase font-semibold`}
+          className={`text-[11px] px-1.5 py-0 uppercase font-semibold ${
+            ev.status === "active"
+              ? "text-red-400 border-red-500/40 bg-red-500/10"
+              : "text-emerald-400 border-emerald-500/40 bg-emerald-500/10"
+          }`}
         >
           {ev.status}
         </Badge>
 
         <div className="ml-auto flex items-center gap-3">
           {ev.worker_id && (
-            <span
-              className="text-sm text-zinc-400 font-mono"
-              title={ev.worker_id}
-            >
-              {truncateId(ev.worker_id)}
-            </span>
+            <CopyableId id={ev.worker_id} />
           )}
-          <div className="flex items-center gap-1.5 text-sm text-zinc-400">
-            <Clock className="size-3.5" />
-            {timeAgo(ev.created_at)}
-          </div>
+          <span className="tabular-nums text-[11px] text-zinc-500">{timeAgo(ev.created_at)}</span>
         </div>
       </div>
-
-      <div className="flex items-center gap-4 px-4 pb-2.5 text-sm text-zinc-500">
-        <span>source: {ev.source}</span>
-        {ev.resolved_at && (
-          <span className="text-emerald-500">
-            resolved {timeAgo(ev.resolved_at)}
-          </span>
-        )}
-      </div>
-
-      {detailEntries.length > 0 && (
-        <div className="border-t border-zinc-800/80">
-          <button
-            onClick={() => setShowDetails(!showDetails)}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-zinc-500 hover:text-zinc-400 transition-colors"
-          >
-            {showDetails ? (
-              <ChevronDown className="size-4" />
-            ) : (
-              <ChevronRight className="size-4" />
-            )}
-            Details ({detailEntries.length})
-          </button>
-          {showDetails && (
-            <div className="px-4 pb-4">
-              <div className="rounded-lg bg-zinc-950/60 border border-zinc-800/80 p-4 space-y-1.5">
-                {detailEntries.map(([k, v]) => (
-                  <div key={k} className="flex items-baseline gap-3 text-sm">
-                    <span className="text-zinc-500 shrink-0">{k}</span>
-                    <span className="text-zinc-400 truncate font-mono text-xs">
-                      {String(v)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </li>
   );
 });
@@ -315,12 +272,15 @@ export function EventFeed() {
   const {
     events,
     connected,
-    connectedAt,
     reconnects,
-    lastEventAt,
     recentHealingEvents,
   } = useSSEContext();
-  const [activeTab, setActiveTab] = useState<TabKey>("tasks");
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
+
+  const errorEvents = useMemo(
+    () => events.filter((ev) => ev.event_type.includes("failed") || ev.error_reason),
+    [events]
+  );
 
   const mergedItems = useMemo<MergedItem[]>(() => {
     if (activeTab !== "all") return [];
@@ -346,35 +306,31 @@ export function EventFeed() {
   }, [activeTab, events, recentHealingEvents]);
 
   const tabCounts: Record<TabKey, number> = {
+    all: events.length + recentHealingEvents.length,
     tasks: events.length,
     operations: recentHealingEvents.length,
-    all: events.length + recentHealingEvents.length,
+    errors: errorEvents.length,
   };
 
   return (
-    <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 border-t-emerald-500/30 border-t-2">
-      <CardHeader>
+    <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 h-full flex flex-col">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2.5 text-lg font-semibold text-zinc-100">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <Radio
-              className={`size-5 ${connected ? "text-emerald-400" : "text-zinc-500"}`}
+              className={`size-4 ${connected ? "text-emerald-400" : "text-zinc-500"}`}
             />
             Event Stream
           </CardTitle>
-          <ConnectionStatus
-            connected={connected}
-            connectedAt={connectedAt}
-            reconnects={reconnects}
-            lastEventAt={lastEventAt}
-          />
+          <ConnectionStatus connected={connected} reconnects={reconnects} />
         </div>
 
-        <div className="flex gap-1 mt-4 p-1 rounded-xl bg-zinc-800/50 border border-zinc-800/80">
+        <div className="flex gap-0.5 mt-3 p-0.5 rounded-lg bg-zinc-800/50 border border-zinc-800/80">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                 activeTab === tab.key
                   ? "bg-zinc-700/80 text-zinc-100 shadow-sm shadow-black/20"
                   : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/30"
@@ -384,7 +340,7 @@ export function EventFeed() {
               {tab.label}
               {tabCounts[tab.key] > 0 && (
                 <span
-                  className={`ml-1 inline-flex items-center justify-center min-w-[20px] h-[20px] rounded-full px-1.5 text-xs font-semibold tabular-nums ${
+                  className={`ml-0.5 inline-flex items-center justify-center min-w-[16px] h-[16px] rounded-full px-1 text-[11px] font-semibold tabular-nums ${
                     activeTab === tab.key
                       ? "bg-zinc-600/80 text-zinc-200"
                       : "bg-zinc-700/50 text-zinc-500"
@@ -398,64 +354,84 @@ export function EventFeed() {
         </div>
       </CardHeader>
 
-      <CardContent>
-        {activeTab === "tasks" && (
-          <>
-            {events.length === 0 ? (
-              <EmptyState
-                icon={Inbox}
-                title="No task events yet"
-                subtitle="Submit a task to see events appear here"
-              />
-            ) : (
-              <ul className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                {events.map((ev) => (
-                  <TaskEventItem key={ev.event_id} ev={ev} />
-                ))}
-              </ul>
-            )}
-          </>
-        )}
+      <CardContent className="flex-1 min-h-0 overflow-hidden pt-0">
+        <div className="h-full max-h-[540px] overflow-y-auto">
+          {activeTab === "all" && (
+            <>
+              {mergedItems.length === 0 ? (
+                <EmptyState
+                  icon={Layers}
+                  title="Waiting for events..."
+                  subtitle="All events will be shown here"
+                />
+              ) : (
+                <ul>
+                  {mergedItems.map((item) =>
+                    item.kind === "task" && item.task ? (
+                      <TaskEventItem key={item.key} ev={item.task} />
+                    ) : item.healing ? (
+                      <HealingEventItem key={item.key} ev={item.healing} />
+                    ) : null
+                  )}
+                </ul>
+              )}
+            </>
+          )}
 
-        {activeTab === "operations" && (
-          <>
-            {recentHealingEvents.length === 0 ? (
-              <EmptyState
-                icon={Radio}
-                title="No healing events yet"
-                subtitle="Operational events will appear here"
-              />
-            ) : (
-              <ul className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                {recentHealingEvents.map((ev) => (
-                  <HealingEventItem key={ev.id} ev={ev} />
-                ))}
-              </ul>
-            )}
-          </>
-        )}
+          {activeTab === "tasks" && (
+            <>
+              {events.length === 0 ? (
+                <EmptyState
+                  icon={Inbox}
+                  title="No task events yet"
+                  subtitle="Submit a task to see events appear here"
+                />
+              ) : (
+                <ul>
+                  {events.map((ev) => (
+                    <TaskEventItem key={ev.event_id} ev={ev} />
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
 
-        {activeTab === "all" && (
-          <>
-            {mergedItems.length === 0 ? (
-              <EmptyState
-                icon={Layers}
-                title="Waiting for events..."
-                subtitle="All events will be shown here"
-              />
-            ) : (
-              <ul className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-                {mergedItems.map((item) =>
-                  item.kind === "task" && item.task ? (
-                    <TaskEventItem key={item.key} ev={item.task} />
-                  ) : item.healing ? (
-                    <HealingEventItem key={item.key} ev={item.healing} />
-                  ) : null
-                )}
-              </ul>
-            )}
-          </>
-        )}
+          {activeTab === "operations" && (
+            <>
+              {recentHealingEvents.length === 0 ? (
+                <EmptyState
+                  icon={Radio}
+                  title="No healing events yet"
+                  subtitle="Operational events will appear here"
+                />
+              ) : (
+                <ul>
+                  {recentHealingEvents.map((ev) => (
+                    <HealingEventItem key={ev.id} ev={ev} />
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {activeTab === "errors" && (
+            <>
+              {errorEvents.length === 0 ? (
+                <EmptyState
+                  icon={AlertCircle}
+                  title="No errors"
+                  subtitle="Failures and errors will appear here"
+                />
+              ) : (
+                <ul>
+                  {errorEvents.map((ev) => (
+                    <TaskEventItem key={ev.event_id} ev={ev} />
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
