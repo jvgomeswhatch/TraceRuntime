@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 )
 
 type Heartbeat struct {
@@ -19,11 +18,10 @@ type Heartbeat struct {
 var ErrStateConflict = errors.New("state transition conflict: row not in expected status")
 
 func (d *DB) SetProcessing(ctx context.Context, id string) error {
-	now := time.Now().UTC()
 	tag, err := d.pool.Exec(ctx,
-		`UPDATE tasks SET status = 'processing', processing_started_at = $1, updated_at = $1
-		 WHERE id = $2::uuid AND status = 'pending'`,
-		now, id,
+		`UPDATE tasks SET status = 'processing', processing_started_at = COALESCE(processing_started_at, NOW()), updated_at = NOW()
+		 WHERE id = $1::uuid AND status = 'pending'`,
+		id,
 	)
 	if err != nil {
 		return fmt.Errorf("db.SetProcessing %s: %w", id, err)
@@ -34,12 +32,21 @@ func (d *DB) SetProcessing(ctx context.Context, id string) error {
 	return nil
 }
 
-func (d *DB) SetCompleted(ctx context.Context, id, artifactKey string) error {
-	now := time.Now().UTC()
+// TokenMetrics holds token usage data returned by the AI Runtime.
+type TokenMetrics struct {
+	PromptTokens    int
+	CompletionTokens int
+	TokensPerSecond float64
+	Model           string
+}
+
+func (d *DB) SetCompleted(ctx context.Context, id, artifactKey string, tm TokenMetrics) error {
 	tag, err := d.pool.Exec(ctx,
-		`UPDATE tasks SET status = 'completed', completed_at = $1, artifact_key = $2, updated_at = $1
-		 WHERE id = $3::uuid AND status = 'processing'`,
-		now, artifactKey, id,
+		`UPDATE tasks SET status = 'completed', completed_at = NOW(), artifact_key = $1, updated_at = NOW(),
+		   prompt_tokens = $3, completion_tokens = $4, tokens_per_second = $5, model = $6
+		 WHERE id = $2::uuid AND status = 'processing'`,
+		artifactKey, id,
+		tm.PromptTokens, tm.CompletionTokens, tm.TokensPerSecond, tm.Model,
 	)
 	if err != nil {
 		return fmt.Errorf("db.SetCompleted %s: %w", id, err)
@@ -51,11 +58,10 @@ func (d *DB) SetCompleted(ctx context.Context, id, artifactKey string) error {
 }
 
 func (d *DB) SetFailed(ctx context.Context, id, reason string) error {
-	now := time.Now().UTC()
 	tag, err := d.pool.Exec(ctx,
-		`UPDATE tasks SET status = 'failed', completed_at = $1, error_message = $2, updated_at = $1
-		 WHERE id = $3::uuid AND status = 'processing'`,
-		now, reason, id,
+		`UPDATE tasks SET status = 'failed', completed_at = NOW(), error_message = $1, updated_at = NOW()
+		 WHERE id = $2::uuid AND status = 'processing'`,
+		reason, id,
 	)
 	if err != nil {
 		return fmt.Errorf("db.SetFailed %s: %w", id, err)

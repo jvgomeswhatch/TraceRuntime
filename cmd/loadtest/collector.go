@@ -17,6 +17,10 @@ type TaskTimestamps struct {
 	CreatedAt           time.Time
 	ProcessingStartedAt *time.Time
 	CompletedAt         *time.Time
+	PromptTokens        int
+	CompletionTokens    int
+	TokensPerSecond     float64
+	Model               string
 }
 
 type LatencyBucket struct {
@@ -27,13 +31,25 @@ type LatencyBucket struct {
 	Max float64 `json:"max"`
 }
 
+type TokenMetricsSummary struct {
+	TotalPromptTokens     int           `json:"total_prompt_tokens"`
+	TotalCompletionTokens int           `json:"total_completion_tokens"`
+	TotalTokens           int           `json:"total_tokens"`
+	AvgTokensPerSecond    float64       `json:"avg_tokens_per_second"`
+	TokensPerSecond       LatencyBucket `json:"tokens_per_second_distribution"`
+	OutputTokens          LatencyBucket `json:"output_tokens_distribution"`
+	Model                 string        `json:"model"`
+}
+
 type CollectedResults struct {
-	TasksCompleted int
-	TasksFailed    int
-	APIRequest     LatencyBucket
-	SubmitToProc   LatencyBucket
-	Processing     LatencyBucket
-	EndToEnd       LatencyBucket
+	TasksCompleted    int
+	TasksFailed       int
+	NegativeDurations int
+	APIRequest        LatencyBucket
+	SubmitToProc      LatencyBucket
+	Processing        LatencyBucket
+	EndToEnd          LatencyBucket
+	TokenMetrics      TokenMetricsSummary
 }
 
 func collectResults(ctx context.Context, dbURL string, submissions []TaskResult, timeout time.Duration) (*CollectedResults, error) {
@@ -103,6 +119,7 @@ func collectResults(ctx context.Context, dbURL string, submissions []TaskResult,
 	var apiReqMs, submitToProcMs, processingMs, endToEndMs []float64
 	completed := 0
 	failed := 0
+	negativeDurations := 0
 
 	for _, t := range timestamps {
 		switch t.Status {
@@ -121,33 +138,101 @@ func collectResults(ctx context.Context, dbURL string, submissions []TaskResult,
 		// are both written by services inside Docker (same clock).
 		if t.ProcessingStartedAt != nil {
 			submitToProc := t.ProcessingStartedAt.Sub(t.CreatedAt)
+			if submitToProc < 0 {
+				slog.Warn("negative queue wait clamped to 0", "task_id", t.TaskID)
+				negativeDurations++
+				submitToProc = 0
+			}
 			submitToProcMs = append(submitToProcMs, float64(submitToProc.Milliseconds()))
 		}
 
 		if t.ProcessingStartedAt != nil && t.CompletedAt != nil {
 			procDur := t.CompletedAt.Sub(*t.ProcessingStartedAt)
+			if procDur < 0 {
+				slog.Warn("negative processing duration clamped to 0", "task_id", t.TaskID)
+				negativeDurations++
+				procDur = 0
+			}
 			processingMs = append(processingMs, float64(procDur.Milliseconds()))
 		}
 
 		if t.CompletedAt != nil {
 			e2e := t.CompletedAt.Sub(t.CreatedAt)
+			if e2e < 0 {
+				slog.Warn("negative end-to-end duration clamped to 0", "task_id", t.TaskID)
+				negativeDurations++
+				e2e = 0
+			}
 			endToEndMs = append(endToEndMs, float64(e2e.Milliseconds()))
 		}
 	}
 
+	// Aggregate token metrics from completed tasks.
+	var totalPrompt, totalCompletion int
+	var tpsValues, outputTokenValues []float64
+	modelCounts := make(map[string]int)
+
+	for _, t := range timestamps {
+		if t.Status != "completed" {
+			continue
+		}
+		totalPrompt += t.PromptTokens
+		totalCompletion += t.CompletionTokens
+		if t.TokensPerSecond > 0 {
+			tpsValues = append(tpsValues, t.TokensPerSecond)
+		}
+		if t.CompletionTokens > 0 {
+			outputTokenValues = append(outputTokenValues, float64(t.CompletionTokens))
+		}
+		if t.Model != "" {
+			modelCounts[t.Model]++
+		}
+	}
+
+	avgTPS := 0.0
+	if len(tpsValues) > 0 {
+		sum := 0.0
+		for _, v := range tpsValues {
+			sum += v
+		}
+		avgTPS = sum / float64(len(tpsValues))
+	}
+
+	bestModel := ""
+	bestCount := 0
+	for m, c := range modelCounts {
+		if c > bestCount {
+			bestModel = m
+			bestCount = c
+		}
+	}
+
+	tokenMetrics := TokenMetricsSummary{
+		TotalPromptTokens:     totalPrompt,
+		TotalCompletionTokens: totalCompletion,
+		TotalTokens:           totalPrompt + totalCompletion,
+		AvgTokensPerSecond:    avgTPS,
+		TokensPerSecond:       computeBucket(tpsValues),
+		OutputTokens:          computeBucket(outputTokenValues),
+		Model:                 bestModel,
+	}
+
 	return &CollectedResults{
-		TasksCompleted: completed,
-		TasksFailed:    failed,
-		APIRequest:     computeBucket(apiReqMs),
-		SubmitToProc:   computeBucket(submitToProcMs),
-		Processing:     computeBucket(processingMs),
-		EndToEnd:       computeBucket(endToEndMs),
+		TasksCompleted:    completed,
+		TasksFailed:       failed,
+		NegativeDurations: negativeDurations,
+		APIRequest:        computeBucket(apiReqMs),
+		SubmitToProc:      computeBucket(submitToProcMs),
+		Processing:        computeBucket(processingMs),
+		EndToEnd:          computeBucket(endToEndMs),
+		TokenMetrics:      tokenMetrics,
 	}, nil
 }
 
 func queryTaskTimestamps(ctx context.Context, pool *pgxpool.Pool, taskIDs []string) ([]TaskTimestamps, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id::text, status, created_at, processing_started_at, completed_at
+		`SELECT id::text, status, created_at, processing_started_at, completed_at,
+		        prompt_tokens, completion_tokens, tokens_per_second, model
 		 FROM tasks WHERE id = ANY($1::uuid[])`, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("query tasks: %w", err)
@@ -157,7 +242,8 @@ func queryTaskTimestamps(ctx context.Context, pool *pgxpool.Pool, taskIDs []stri
 	var results []TaskTimestamps
 	for rows.Next() {
 		var t TaskTimestamps
-		if err := rows.Scan(&t.TaskID, &t.Status, &t.CreatedAt, &t.ProcessingStartedAt, &t.CompletedAt); err != nil {
+		if err := rows.Scan(&t.TaskID, &t.Status, &t.CreatedAt, &t.ProcessingStartedAt, &t.CompletedAt,
+			&t.PromptTokens, &t.CompletionTokens, &t.TokensPerSecond, &t.Model); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		results = append(results, t)

@@ -3,7 +3,11 @@ import os
 import httpx
 from opentelemetry.trace import Status, StatusCode
 
-from metrics import ai_inference_in_flight, ai_inference_duration_seconds, ai_output_chars
+from metrics import (
+    ai_inference_in_flight, ai_inference_duration_seconds, ai_output_chars,
+    llm_prompt_tokens_total, llm_completion_tokens_total, llm_tokens_total,
+    llm_output_tokens, llm_inference_tokens_per_second,
+)
 from telemetry import get_tracer
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -12,9 +16,16 @@ MAX_OUTPUT_CHARS = int(os.getenv("MAX_OUTPUT_CHARS", "8000"))
 _tracer = get_tracer("traceruntime-ai-runtime/ollama")
 
 
-def generate(model: str, prompt: str, timeout_ms: int, task_type: str) -> tuple[str, bool]:
+def _safe_int(val) -> int:
+    if isinstance(val, int) and val >= 0:
+        return val
+    return 0
+
+
+def generate(model: str, prompt: str, timeout_ms: int, task_type: str) -> tuple[str, bool, dict]:
     """
-    Call Ollama /api/generate. Returns (output, truncated).
+    Call Ollama /api/generate. Returns (output, truncated, token_info).
+    token_info contains prompt_tokens, completion_tokens, tokens_per_second.
     Opens an 'ollama.generate' child span with llm.* attributes.
     Raises httpx.TimeoutException on timeout, httpx.HTTPError on provider error.
     """
@@ -36,7 +47,8 @@ def generate(model: str, prompt: str, timeout_ms: int, task_type: str) -> tuple[
                 timeout=timeout_s,
             )
             resp.raise_for_status()
-            raw = resp.json().get("response", "")
+            data = resp.json()
+            raw = data.get("response", "")
         except Exception:
             span.set_status(Status(StatusCode.ERROR))
             raise
@@ -53,4 +65,32 @@ def generate(model: str, prompt: str, timeout_ms: int, task_type: str) -> tuple[
 
         ai_output_chars.labels(model=model, truncated=str(truncated).lower()).observe(len(output))
 
-        return output, truncated
+        prompt_tokens = _safe_int(data.get("prompt_eval_count"))
+        completion_tokens = _safe_int(data.get("eval_count"))
+        eval_duration_ns = _safe_int(data.get("eval_duration"))
+        total_tokens = prompt_tokens + completion_tokens
+
+        tokens_per_second = 0.0
+        if eval_duration_ns > 0 and completion_tokens > 0:
+            tokens_per_second = completion_tokens / (eval_duration_ns / 1e9)
+
+        labels = {"model": model, "task_type": task_type}
+        llm_prompt_tokens_total.labels(**labels).inc(prompt_tokens)
+        llm_completion_tokens_total.labels(**labels).inc(completion_tokens)
+        llm_tokens_total.labels(**labels).inc(total_tokens)
+        llm_output_tokens.labels(**labels).observe(completion_tokens)
+        if tokens_per_second > 0:
+            llm_inference_tokens_per_second.labels(**labels).observe(tokens_per_second)
+
+        span.set_attribute("llm.prompt_tokens", prompt_tokens)
+        span.set_attribute("llm.completion_tokens", completion_tokens)
+        span.set_attribute("llm.total_tokens", total_tokens)
+        span.set_attribute("llm.tokens_per_second", round(tokens_per_second, 2))
+
+        token_info = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "tokens_per_second": round(tokens_per_second, 2),
+        }
+
+        return output, truncated, token_info

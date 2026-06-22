@@ -17,3 +17,6 @@ class GraphState(TypedDict):
     execution_status: str   # completed | degraded | failed
     validation_status: str  # ok | empty | truncated | invalid_output
     inference_duration_ms: int
+    prompt_tokens: int
+    completion_tokens: int
+    tokens_per_second: float

@@ -57,7 +57,7 @@ def _generate_node(state: GraphState) -> dict:
         span.set_attribute("generate.timeout_ms", profile["timeout_ms"])
 
         try:
-            output, truncated = ollama_client.generate(
+            output, truncated, token_info = ollama_client.generate(
                 model=profile["model"],
                 prompt=state["input"],
                 timeout_ms=profile["timeout_ms"],
@@ -73,6 +73,9 @@ def _generate_node(state: GraphState) -> dict:
                 "model": profile["model"],
                 "elapsed_ms": elapsed_ms,
                 "truncated": truncated,
+                "prompt_tokens": token_info["prompt_tokens"],
+                "completion_tokens": token_info["completion_tokens"],
+                "tokens_per_second": token_info["tokens_per_second"],
                 **trace_fields(),
             })
 
@@ -81,6 +84,9 @@ def _generate_node(state: GraphState) -> dict:
                 "execution_status": execution_status,
                 "validation_status": validation_status,
                 "inference_duration_ms": elapsed_ms,
+                "prompt_tokens": token_info["prompt_tokens"],
+                "completion_tokens": token_info["completion_tokens"],
+                "tokens_per_second": token_info["tokens_per_second"],
             }
 
         except httpx.TimeoutException:
@@ -92,6 +98,9 @@ def _generate_node(state: GraphState) -> dict:
                 "execution_status": "failed",
                 "validation_status": "",
                 "inference_duration_ms": elapsed_ms,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "tokens_per_second": 0.0,
             }
 
         except httpx.HTTPError as e:
@@ -103,6 +112,9 @@ def _generate_node(state: GraphState) -> dict:
                 "execution_status": "failed",
                 "validation_status": "",
                 "inference_duration_ms": elapsed_ms,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "tokens_per_second": 0.0,
             }
 
 

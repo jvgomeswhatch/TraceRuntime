@@ -1,5 +1,12 @@
+.git
 .env
 .env.*
-.git
+.gitkeep
+.idea/
+.vscode/
+Dockerfile
 *.md
+*.exe
+*.test
+*.out
 tmp/

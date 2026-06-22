@@ -26,12 +26,13 @@ type ReportConfig struct {
 }
 
 type ReportResults struct {
-	DurationSeconds float64       `json:"duration_seconds"`
-	TasksSubmitted  int           `json:"tasks_submitted"`
-	TasksCompleted  int           `json:"tasks_completed"`
-	TasksFailed     int           `json:"tasks_failed"`
-	ThroughputRPS   float64       `json:"throughput_rps"`
-	LatencyMs       ReportLatency `json:"latency_ms"`
+	DurationSeconds float64             `json:"duration_seconds"`
+	TasksSubmitted  int                 `json:"tasks_submitted"`
+	TasksCompleted  int                 `json:"tasks_completed"`
+	TasksFailed     int                 `json:"tasks_failed"`
+	ThroughputRPS   float64             `json:"throughput_rps"`
+	LatencyMs       ReportLatency       `json:"latency_ms"`
+	TokenMetrics    TokenMetricsSummary  `json:"token_metrics"`
 }
 
 type ReportLatency struct {
@@ -71,10 +72,11 @@ type Recommendations struct {
 }
 
 type StatusCriteria struct {
-	ErrorRatePct float64 `json:"error_rate_pct"`
-	Timeouts     int     `json:"timeouts"`
-	Converged    bool    `json:"backlog_converged"`
-	DLQTriggered bool    `json:"dlq_triggered"`
+	ErrorRatePct      float64 `json:"error_rate_pct"`
+	Timeouts          int     `json:"timeouts"`
+	NegativeDurations int     `json:"negative_durations"`
+	Converged         bool    `json:"backlog_converged"`
+	DLQTriggered      bool    `json:"dlq_triggered"`
 }
 
 func buildReport(cfg Config, duration time.Duration, submissions []TaskResult, collected *CollectedResults, qm *QueueMetrics, converged bool) *Report {
@@ -102,11 +104,9 @@ func buildReport(cfg Config, duration time.Duration, submissions []TaskResult, c
 	}
 
 	p95Processing := collected.Processing.P95
-	currentVT := 150
+	currentVT := 360
 	recommendedVT := int(p95Processing/1000) + 30
-	if recommendedVT < currentVT {
-		recommendedVT = currentVT
-	}
+	recommendedVT = max(recommendedVT, currentVT)
 
 	queueDepthReason := "no saturation observed — current threshold adequate"
 	queueDepthRec := "adequate"
@@ -120,7 +120,7 @@ func buildReport(cfg Config, duration time.Duration, submissions []TaskResult, c
 		concurrencyObs = fmt.Sprintf("%d failures observed — investigate before scaling concurrency", collected.TasksFailed)
 	}
 
-	status := determineStatus(errorRate, submitErrors, converged)
+	status := determineStatus(errorRate, submitErrors, collected.NegativeDurations, converged)
 
 	return &Report{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -142,6 +142,7 @@ func buildReport(cfg Config, duration time.Duration, submissions []TaskResult, c
 				Processing:   collected.Processing,
 				EndToEnd:     collected.EndToEnd,
 			},
+			TokenMetrics: collected.TokenMetrics,
 		},
 		QueueMets: ReportQueue{
 			MaxVisible:  maxVis,
@@ -166,19 +167,20 @@ func buildReport(cfg Config, duration time.Duration, submissions []TaskResult, c
 		},
 		Status: status,
 		Criteria: StatusCriteria{
-			ErrorRatePct: errorRate,
-			Timeouts:     submitErrors,
-			Converged:    converged,
-			DLQTriggered: false,
+			ErrorRatePct:      errorRate,
+			Timeouts:          submitErrors,
+			NegativeDurations: collected.NegativeDurations,
+			Converged:         converged,
+			DLQTriggered:      false,
 		},
 	}
 }
 
-func determineStatus(errorRate float64, timeouts int, converged bool) string {
+func determineStatus(errorRate float64, timeouts int, negativeDurations int, converged bool) string {
 	if errorRate > 15 || !converged {
 		return "FAIL"
 	}
-	if errorRate > 5 || timeouts > 0 {
+	if errorRate > 5 || timeouts > 0 || negativeDurations > 0 {
 		return "WARNING"
 	}
 	return "PASS"
@@ -215,6 +217,7 @@ func printSummary(report *Report) {
 	fmt.Printf("  Duration:    %.1fs\n", report.Results.DurationSeconds)
 	fmt.Printf("  Throughput:  %.2f req/s\n", report.Results.ThroughputRPS)
 	fmt.Printf("  Error Rate:  %.1f%%\n", report.Criteria.ErrorRatePct)
+	fmt.Printf("  Anomalies:   %d negative durations\n", report.Criteria.NegativeDurations)
 	fmt.Println()
 	fmt.Println("  Latency (ms)          p50       p95       p99       min       max")
 	fmt.Println("  ─────────────────────────────────────────────────────────────────")
@@ -223,6 +226,21 @@ func printSummary(report *Report) {
 	printLatencyRow("  Processing      ", report.Results.LatencyMs.Processing)
 	printLatencyRow("  End-to-End      ", report.Results.LatencyMs.EndToEnd)
 	fmt.Println()
+
+	tm := report.Results.TokenMetrics
+	if tm.TotalTokens > 0 {
+		fmt.Println("  Token Metrics")
+		if tm.Model != "" {
+			fmt.Printf("    Model:             %s\n", tm.Model)
+		}
+		fmt.Printf("    Total Tokens:      %d (%d prompt + %d completion)\n",
+			tm.TotalTokens, tm.TotalPromptTokens, tm.TotalCompletionTokens)
+		fmt.Printf("    Avg Tokens/s:      %.2f\n", tm.AvgTokensPerSecond)
+		fmt.Printf("    Tokens/s (p95):    %.2f\n", tm.TokensPerSecond.P95)
+		fmt.Printf("    Output Tokens p95: %.0f\n", tm.OutputTokens.P95)
+		fmt.Println()
+	}
+
 	fmt.Println("  Queue Behavior")
 	fmt.Printf("    Peak Backlog:    %d messages\n", report.QueueMets.MaxVisible)
 	fmt.Printf("    Peak In-Flight:  %d messages\n", report.QueueMets.MaxInflight)
@@ -240,11 +258,14 @@ func printSummary(report *Report) {
 		report.Recs.Concurrency.Observation)
 	fmt.Println()
 
-	statusColor := "\033[32m"
-	if report.Status == "WARNING" {
+	var statusColor string
+	switch report.Status {
+	case "WARNING":
 		statusColor = "\033[33m"
-	} else if report.Status == "FAIL" {
+	case "FAIL":
 		statusColor = "\033[31m"
+	default:
+		statusColor = "\033[32m"
 	}
 	fmt.Printf("  Status: %s● %s\033[0m\n", statusColor, report.Status)
 	fmt.Println()

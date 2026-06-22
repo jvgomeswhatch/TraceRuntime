@@ -51,8 +51,13 @@ up:
 	docker compose -f infra/observability/docker-compose.yml up -d
 	docker compose --profile no-ai up -d
 
+up-full:
+	docker network create traceruntime 2>/dev/null || true
+	docker compose -f infra/observability/docker-compose.yml up -d
+	docker compose --profile full up -d
+
 down:
-	docker compose --profile no-ai down
+	docker compose --profile full down
 	docker compose -f infra/observability/docker-compose.yml down
 
 restart: down up

@@ -69,8 +69,8 @@ services:
       localstack:
         condition: service_healthy
     restart: "no"
-    mem_limit: 512m
-    cpus: "0.5"
+    mem_limit: 768m
+    cpus: "1.0"
     profiles: [infra]
 
   migrate:

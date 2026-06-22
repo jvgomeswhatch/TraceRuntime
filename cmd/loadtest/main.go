@@ -88,7 +88,7 @@ func run(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("no tasks were successfully submitted")
 	}
 
-	waitTimeout := 10 * time.Minute
+	waitTimeout := time.Duration(cfg.Tasks) * 5 * time.Minute
 	collected, err := collectResults(ctx, cfg.DBURL, submissions, waitTimeout)
 	if err != nil {
 		return fmt.Errorf("collect results: %w", err)

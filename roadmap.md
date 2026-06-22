@@ -311,34 +311,35 @@ Goal:
 
 Prerequisite: Ollama running, Qwen/DeepSeek loaded, full pipeline operational.
 
-## 9A — Operational Tuning & Capacity
+## 9A — Operational Tuning & Capacity ✅
 
 This sub-phase resolves the items left open from Phase 7A validation, which could not be characterized with the mock path (sub-millisecond processing, no real backlog).
 
-Measure:
+Measured:
 
-- p50/p95/p99 real inference latency (`traceruntime_worker_task_duration_seconds`)
-- queue backlog behavior under sustained load
-- memory consumption of models under real inference
+- p50/p95/p99 real inference latency (qwen2.5:3b on Ryzen 5 3500U)
+- queue backlog behavior under sustained load (peak 9-10 messages)
+- token throughput: avg 2.96 tok/s, p95 3.30 tok/s (hardware ceiling ~3.3)
 - `ApproximateNumberOfMessagesNotVisible` behavior during actual processing
 
-Calibrate:
+Calibrated:
 
-- `VisibilityTimeout` — current value 150s is provisional; must be > p95 inference time + 30s margin
-- `QUEUE_MAX_DEPTH` admission control threshold — define from observed saturation point, not speculation
-- Worker concurrency ceiling — characterize degradation before adding workers
+- `VisibilityTimeout` — 240s → 360s (p95 processing = 286s + margin)
+- `QUEUE_MAX_DEPTH` admission control threshold — 50 adequate (peak observed: 10)
+- Worker concurrency ceiling — 1 worker stable, concurrency > 1 deferred to 9B
 
-Document:
+Delivered:
 
-- baseline numbers for all metrics as reference for chaos experiments
-- identified bottlenecks and resource ceiling
+- Token metrics instrumentation (ai-runtime → worker → DB → loadtest)
+- Grafana LLM Capacity dashboard (7 panels)
+- PostgreSQL migration 000005 (token columns)
+- Loadtest tool with collector, anomaly tracking, JSON reports
+- Clock drift fix: `NOW()` from PostgreSQL in all state transitions
+- `docs/baselines/BASELINE_OPERACIONAL_v1.md` with real Ollama numbers
 
-Goal:
+Incidents resolved:
 
-- all operational parameters are derived from real measurement, not defaults
-- numbers from this phase serve as the SLO baseline for chaos testing
-
-Note: measurements obtained with mock AI are archived as reference but are not valid operational baselines.
+- Docker/WSL2 clock drift causing negative processing durations — root cause identified and fixed
 
 ## 9B — Chaos Testing
 

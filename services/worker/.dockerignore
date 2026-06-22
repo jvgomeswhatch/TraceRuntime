@@ -1,8 +1,11 @@
-*.exe
-*.test
-*.out
 .git
 .env
 .env.*
+.gitkeep
 .idea/
 .vscode/
+Dockerfile
+*.md
+*.exe
+*.test
+*.out

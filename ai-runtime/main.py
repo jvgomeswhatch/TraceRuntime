@@ -31,7 +31,8 @@ class _JsonFormatter(logging.Formatter):
             "name": record.name,
         }
         for key in ("task_id", "trace_id", "span_id", "execution_status",
-                    "validation_status", "model", "total_ms", "error"):
+                    "validation_status", "model", "total_ms", "error",
+                    "prompt_tokens", "completion_tokens", "tokens_per_second"):
             if hasattr(record, key):
                 fields[key] = getattr(record, key)
         return json.dumps(fields)
@@ -109,6 +110,9 @@ async def infer(body: InferRequestModel, request: Request):
                     "execution_status": "",
                     "validation_status": "",
                     "inference_duration_ms": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "tokens_per_second": 0.0,
                 }
 
                 result = _graph.invoke(initial_state)
@@ -136,6 +140,9 @@ async def infer(body: InferRequestModel, request: Request):
                     "validation_status": validation_status,
                     "model": profile.get("model"),
                     "total_ms": total_ms,
+                    "prompt_tokens": result.get("prompt_tokens", 0),
+                    "completion_tokens": result.get("completion_tokens", 0),
+                    "tokens_per_second": result.get("tokens_per_second", 0.0),
                     **trace_fields(),
                 })
 
@@ -152,6 +159,9 @@ async def infer(body: InferRequestModel, request: Request):
                         "validation_status": validation_status,
                         "inference_duration_ms": result.get("inference_duration_ms", 0),
                         "total_duration_ms": total_ms,
+                        "prompt_tokens": result.get("prompt_tokens", 0),
+                        "completion_tokens": result.get("completion_tokens", 0),
+                        "tokens_per_second": result.get("tokens_per_second", 0.0),
                     },
                 )
 

@@ -130,16 +130,17 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		Source:      "worker",
 	})
 
-	var output, model string
-	var durationMs int
+	var ir inferResult
 
 	if !p.cfg.AIEnabled {
-		output = fmt.Sprintf("mock output for task %s", msg.TaskID)
-		model = "mock"
+		ir = inferResult{
+			Output: fmt.Sprintf("mock output for task %s", msg.TaskID),
+			Model:  "mock",
+		}
 		slog.Info("AI runtime disabled — using mock output", "task_id", msg.TaskID)
 	} else {
 		var err error
-		output, model, durationMs, err = p.callAIRuntime(processCtx, msg, childTraceparent)
+		ir, err = p.callAIRuntime(processCtx, msg, childTraceparent)
 		if err != nil {
 			slog.Error("ai runtime call failed", "task_id", msg.TaskID, "error", err)
 			metrics.TasksFailed.Inc()
@@ -164,8 +165,8 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 	s3Payload, _ := json.Marshal(map[string]any{
 		"task_id":    msg.TaskID,
 		"trace_id":   traceID,
-		"output":     output,
-		"model":      model,
+		"output":     ir.Output,
+		"model":      ir.Model,
 		"created_at": time.Now().UTC().Format(time.RFC3339),
 	})
 	_, err := p.s3.PutObject(processCtx, &s3.PutObjectInput{
@@ -203,7 +204,13 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 	}
 
 	if p.db != nil {
-		if err := p.db.SetCompleted(processCtx, msg.TaskID, s3Key); err != nil {
+		tm := db.TokenMetrics{
+			PromptTokens:     ir.PromptTokens,
+			CompletionTokens: ir.CompletionTokens,
+			TokensPerSecond:  ir.TokensPerSecond,
+			Model:            ir.Model,
+		}
+		if err := p.db.SetCompleted(processCtx, msg.TaskID, s3Key, tm); err != nil {
 			slog.Error("failed to set task completed", "task_id", msg.TaskID, "error", err)
 		}
 	}
@@ -214,8 +221,11 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 	slog.Info("task completed",
 		"task_id", msg.TaskID,
 		"trace_id", traceID,
-		"model", model,
-		"duration_ms", durationMs,
+		"model", ir.Model,
+		"duration_ms", ir.DurationMs,
+		"prompt_tokens", ir.PromptTokens,
+		"completion_tokens", ir.CompletionTokens,
+		"tokens_per_second", ir.TokensPerSecond,
 		"s3_key", s3Key,
 	)
 
@@ -225,15 +235,24 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		Traceparent:         childTraceparent,
 		TaskID:              msg.TaskID,
 		Source:              "worker",
-		Output:              output,
-		Model:               model,
+		Output:              ir.Output,
+		Model:               ir.Model,
 		ExecutionStatus:     "completed",
-		InferenceDurationMs: durationMs,
+		InferenceDurationMs: ir.DurationMs,
 		S3Key:               s3Key,
 	})
 }
 
-func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, traceparent string) (output, model string, durationMs int, err error) {
+type inferResult struct {
+	Output           string
+	Model            string
+	DurationMs       int
+	PromptTokens     int
+	CompletionTokens int
+	TokensPerSecond  float64
+}
+
+func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, traceparent string) (inferResult, error) {
 	deadline := time.Now().Add(300 * time.Second)
 	inferCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -246,7 +265,7 @@ func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, tracepare
 
 	req, err := http.NewRequestWithContext(inferCtx, http.MethodPost, p.cfg.AIRuntimeURL+"/infer", bytes.NewReader(body))
 	if err != nil {
-		return "", "", 0, err
+		return inferResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("traceparent", traceparent)
@@ -254,29 +273,39 @@ func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, tracepare
 	client := &http.Client{Timeout: 305 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", 0, err
+		return inferResult{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 500 {
-		return "", "", 0, fmt.Errorf("ai runtime HTTP %d", resp.StatusCode)
+		return inferResult{}, fmt.Errorf("ai runtime HTTP %d", resp.StatusCode)
 	}
 
 	var result struct {
-		Output          string `json:"output"`
-		ExecutionStatus string `json:"execution_status"`
-		InferenceDurationMs int `json:"inference_duration_ms"`
-		ExecutionProfile struct {
+		Output              string  `json:"output"`
+		ExecutionStatus     string  `json:"execution_status"`
+		InferenceDurationMs int     `json:"inference_duration_ms"`
+		PromptTokens        int     `json:"prompt_tokens"`
+		CompletionTokens    int     `json:"completion_tokens"`
+		TokensPerSecond     float64 `json:"tokens_per_second"`
+		ExecutionProfile    struct {
 			Model string `json:"model"`
 		} `json:"execution_profile"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", 0, err
+		return inferResult{}, err
 	}
 	if result.ExecutionStatus == "failed" {
-		return "", "", 0, fmt.Errorf("ai runtime returned failed status")
+		return inferResult{}, fmt.Errorf("ai runtime returned failed status")
 	}
-	return result.Output, result.ExecutionProfile.Model, result.InferenceDurationMs, nil
+	return inferResult{
+		Output:           result.Output,
+		Model:            result.ExecutionProfile.Model,
+		DurationMs:       result.InferenceDurationMs,
+		PromptTokens:     result.PromptTokens,
+		CompletionTokens: result.CompletionTokens,
+		TokensPerSecond:  result.TokensPerSecond,
+	}, nil
 }
 
 func (p *Processor) publishSSE(ev sseEvent) {
