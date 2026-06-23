@@ -140,3 +140,22 @@ loadtest:
 		--rate=$(or $(RATE),2) \
 		--concurrency=$(or $(CONCURRENCY),4) \
 		--output-dir=../../results
+
+# ── Integration Testing ──────────────────────────────────────────────────────
+.PHONY: test-integration test-integration-up test-integration-down test-all
+
+test-integration-up:
+	docker compose --profile no-ai -f docker-compose.yml -f docker-compose.test.yml up -d --build
+	@echo "Waiting for services..."
+	@until curl -sf http://localhost:8082/health > /dev/null 2>&1; do sleep 2; done
+	@echo "Services ready."
+
+test-integration-down:
+	docker compose --profile no-ai -f docker-compose.yml -f docker-compose.test.yml down
+
+test-integration:
+	@docker compose ps --format '{{.Service}}' | head -1 > /dev/null 2>&1 || \
+		(echo "ERROR: services not running. Run 'make test-integration-up' first." && exit 1)
+	cd tests/integration && go test -v -count=1 -timeout=5m ./...
+
+test-all: test test-integration

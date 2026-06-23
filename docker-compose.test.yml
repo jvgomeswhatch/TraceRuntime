@@ -1,0 +1,21 @@
+services:
+  mock-ai-runtime:
+    build:
+      context: ./tests/integration/cmd/mock-ai-runtime
+      dockerfile: Dockerfile
+    networks: [traceruntime]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    mem_limit: 32m
+    cpus: "0.25"
+
+  worker:
+    environment:
+      - AI_RUNTIME_URL=http://mock-ai-runtime:8000
+    depends_on:
+      mock-ai-runtime:
+        condition: service_healthy
