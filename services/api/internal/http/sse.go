@@ -14,14 +14,21 @@ import (
 var sseTracer = otel.Tracer("traceruntime-api/sse")
 
 type SSEHandler struct {
-	broker *event.Broker
+	broker         *event.Broker
+	allowedOrigins []string
 }
 
-func NewSSEHandler(broker *event.Broker) *SSEHandler {
-	return &SSEHandler{broker: broker}
+func NewSSEHandler(broker *event.Broker, allowedOrigins []string) *SSEHandler {
+	return &SSEHandler{broker: broker, allowedOrigins: allowedOrigins}
 }
 
 func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if origin != "" && !isAllowedOrigin(origin, h.allowedOrigins) {
+		http.Error(w, "origin not allowed", http.StatusForbidden)
+		return
+	}
+
 	_, span := sseTracer.Start(r.Context(), "sse.stream")
 	defer span.End()
 

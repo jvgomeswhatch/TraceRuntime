@@ -106,7 +106,8 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
-      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
       - CAPACITY_RESULTS_DIR=/app/results
     volumes:
       - ./results:/app/results:ro
@@ -149,7 +150,7 @@ services:
       - AI_RUNTIME_URL=http://ai-runtime:8000
       - AI_RUNTIME_ENABLED=true
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
-      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
       - WATCHDOG_HEARTBEAT_INTERVAL_SECONDS=10
     ports:
       - "9091:9091"
@@ -189,7 +190,7 @@ services:
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=3
       - WORKER_HEALTH_URL=http://worker:9091/health
       - API_EVENTS_URL=http://api:8082/internal/events
-      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-local-dev-token-change-in-prod}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -260,6 +261,7 @@ services:
       - "3001:3001"
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - NEXT_PUBLIC_INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
     networks: [traceruntime]
     depends_on:
       api:

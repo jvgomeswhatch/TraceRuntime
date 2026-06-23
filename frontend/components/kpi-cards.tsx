@@ -59,7 +59,9 @@ export const KpiCards = React.memo(function KpiCards() {
 
   const fetchReport = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:8082/api/capacity/latest");
+      const token = process.env.NEXT_PUBLIC_INTERNAL_TOKEN;
+      const headers: HeadersInit = token ? { "X-Internal-Token": token } : {};
+      const res = await fetch("http://localhost:8082/api/capacity/latest", { headers });
       if (!res.ok) return;
       const data: CapacityReport = await res.json();
       setReport(data);

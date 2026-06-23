@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -82,7 +83,20 @@ func main() {
 	}
 
 	resultsDir := envString("CAPACITY_RESULTS_DIR", "./results")
-	router := apihttp.NewRouter(broker, publisher, q, database, resultsDir)
+	originsStr := envString("ALLOWED_ORIGINS", "http://localhost:3001")
+	var allowedOrigins []string
+	for o := range strings.SplitSeq(originsStr, ",") {
+		if trimmed := strings.TrimSpace(o); trimmed != "" {
+			allowedOrigins = append(allowedOrigins, trimmed)
+		}
+	}
+
+	internalToken := envString("INTERNAL_TOKEN", "")
+	if internalToken == "" {
+		slog.Warn("INTERNAL_TOKEN not set — operational endpoints accessible without auth (dev mode)")
+	}
+
+	router := apihttp.NewRouter(broker, publisher, q, database, resultsDir, allowedOrigins, internalToken)
 
 	port := envString("PORT", "8082")
 	srv := &http.Server{

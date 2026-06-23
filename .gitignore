@@ -43,3 +43,6 @@ results/
 
 # Screenshots
 *.png
+
+# Chaos testing
+.chaos.token

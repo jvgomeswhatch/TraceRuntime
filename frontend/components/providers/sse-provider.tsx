@@ -126,9 +126,11 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
+      const token = process.env.NEXT_PUBLIC_INTERNAL_TOKEN;
+      const headers: HeadersInit = token ? { "X-Internal-Token": token } : {};
       const [opsResult, eventsResult] = await Promise.allSettled([
-        fetch(OPS_SUMMARY_URL),
-        fetch(RECENT_EVENTS_URL),
+        fetch(OPS_SUMMARY_URL, { headers }),
+        fetch(RECENT_EVENTS_URL, { headers }),
       ]);
 
       if (cancelled) return;
