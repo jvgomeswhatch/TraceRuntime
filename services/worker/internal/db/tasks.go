@@ -57,6 +57,21 @@ func (d *DB) SetCompleted(ctx context.Context, id, artifactKey string, tm TokenM
 	return nil
 }
 
+func (d *DB) RevertToPending(ctx context.Context, id string) error {
+	tag, err := d.pool.Exec(ctx,
+		`UPDATE tasks SET status = 'pending', processing_started_at = NULL, updated_at = NOW()
+		 WHERE id = $1::uuid AND status = 'processing'`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("db.RevertToPending %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("db.RevertToPending %s: %w", id, ErrStateConflict)
+	}
+	return nil
+}
+
 func (d *DB) SetFailed(ctx context.Context, id, reason string) error {
 	tag, err := d.pool.Exec(ctx,
 		`UPDATE tasks SET status = 'failed', completed_at = NOW(), error_message = $1, updated_at = NOW()

@@ -236,6 +236,8 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_HOST=http://host.docker.internal:11434
+      - CHAOS_ENABLED=${CHAOS_ENABLED:-false}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-disabled}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [traceruntime]

@@ -91,6 +91,24 @@ func main() {
 	go pollMessages(ctx, sqsClient, queueURL, proc)
 
 	go func() {
+		sendHeartbeat := func() {
+			hb := db.Heartbeat{
+				WorkerID:       workerID,
+				TasksProcessed: int64(metrics.GetTasksProcessed()),
+				TasksFailed:    int64(metrics.GetTasksFailed()),
+				CurrentTaskID:  proc.CurrentTaskID(),
+				Goroutines:     runtime.NumGoroutine(),
+				UptimeSeconds:  int64(time.Since(startTime).Seconds()),
+			}
+			hbCtx, hbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := database.UpsertHeartbeat(hbCtx, hb); err != nil {
+				slog.Warn("heartbeat upsert failed", "error", err)
+			}
+			hbCancel()
+		}
+
+		sendHeartbeat()
+
 		ticker := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
 		defer ticker.Stop()
 		for {
@@ -98,19 +116,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				hb := db.Heartbeat{
-					WorkerID:       workerID,
-					TasksProcessed: int64(metrics.GetTasksProcessed()),
-					TasksFailed:    int64(metrics.GetTasksFailed()),
-					CurrentTaskID:  proc.CurrentTaskID(),
-					Goroutines:     runtime.NumGoroutine(),
-					UptimeSeconds:  int64(time.Since(startTime).Seconds()),
-				}
-				hbCtx, hbCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := database.UpsertHeartbeat(hbCtx, hb); err != nil {
-					slog.Warn("heartbeat upsert failed", "error", err)
-				}
-				hbCancel()
+				sendHeartbeat()
 			}
 		}
 	}()
@@ -184,9 +190,11 @@ func pollMessages(ctx context.Context, client *sqs.Client, queueURL string, proc
 			if attr, ok := msg.MessageAttributes["traceparent"]; ok && attr.StringValue != nil {
 				traceparent = *attr.StringValue
 			}
-			receiveCount := ""
+			receiveCount := 1
 			if v, ok := msg.Attributes["ApproximateReceiveCount"]; ok {
-				receiveCount = string(v)
+				if n, err := strconv.Atoi(string(v)); err == nil {
+					receiveCount = n
+				}
 			}
 			slog.Info("received sqs message",
 				"message_id", aws.ToString(msg.MessageId),
@@ -194,7 +202,7 @@ func pollMessages(ctx context.Context, client *sqs.Client, queueURL string, proc
 				"receive_count", receiveCount,
 				"body_len", len(aws.ToString(msg.Body)),
 			)
-			proc.Process(ctx, aws.ToString(msg.Body), traceparent, aws.ToString(msg.ReceiptHandle))
+			proc.Process(ctx, aws.ToString(msg.Body), traceparent, aws.ToString(msg.ReceiptHandle), receiveCount)
 		}
 	}
 }

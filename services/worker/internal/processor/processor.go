@@ -77,8 +77,10 @@ type sseEvent struct {
 	S3Key               string `json:"s3_key,omitempty"`
 }
 
+const maxReceiveCount = 3
+
 // Process handles a single SQS message. Deletes from SQS only on success.
-func (p *Processor) Process(ctx context.Context, body string, traceparentAttr string, receiptHandle string) {
+func (p *Processor) Process(ctx context.Context, body string, traceparentAttr string, receiptHandle string, receiveCount int) {
 	start := time.Now()
 
 	var msg sqsMessage
@@ -142,22 +144,47 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		var err error
 		ir, err = p.callAIRuntime(processCtx, msg, childTraceparent)
 		if err != nil {
-			slog.Error("ai runtime call failed", "task_id", msg.TaskID, "error", err)
-			metrics.TasksFailed.Inc()
-			if p.db != nil {
-				if err := p.db.SetFailed(processCtx, msg.TaskID, "ai_runtime_error"); err != nil {
-					slog.Error("failed to set task failed", "task_id", msg.TaskID, "error", err)
+			slog.Error("ai runtime call failed", "task_id", msg.TaskID, "error", err, "receive_count", receiveCount, "max_receive_count", maxReceiveCount)
+			if receiveCount >= maxReceiveCount {
+				metrics.TasksFailed.Inc()
+				if p.db != nil {
+					if err := p.db.SetFailed(processCtx, msg.TaskID, "ai_runtime_error"); err != nil {
+						slog.Error("failed to set task failed", "task_id", msg.TaskID, "error", err)
+					}
 				}
+				p.publishSSE(sseEvent{
+					EventType:   "task.failed",
+					TraceID:     traceID,
+					Traceparent: childTraceparent,
+					TaskID:      msg.TaskID,
+					Source:      "worker",
+					ErrorReason: "ai_runtime_error",
+				})
+				slog.Info("task permanently failed — max retries exhausted", "task_id", msg.TaskID, "receive_count", receiveCount)
+			} else {
+				if p.db != nil {
+					if err := p.db.RevertToPending(processCtx, msg.TaskID); err != nil {
+						slog.Error("failed to revert task to pending", "task_id", msg.TaskID, "error", err)
+					}
+				}
+				// Release message back to SQS immediately for retry instead of
+				// waiting for the full visibility timeout (360s) to expire.
+				p.sqs.ChangeMessageVisibility(processCtx, &sqssdk.ChangeMessageVisibilityInput{
+					QueueUrl:          aws.String(p.cfg.SQSURL),
+					ReceiptHandle:     aws.String(receiptHandle),
+					VisibilityTimeout: 30,
+				})
+				p.publishSSE(sseEvent{
+					EventType:   "task.retrying",
+					TraceID:     traceID,
+					Traceparent: childTraceparent,
+					TaskID:      msg.TaskID,
+					Source:      "worker",
+					ErrorReason: "ai_runtime_error",
+				})
+				slog.Info("task reverted to pending — will retry via SQS in 30s", "task_id", msg.TaskID, "receive_count", receiveCount)
 			}
-			p.publishSSE(sseEvent{
-				EventType:   "task.failed",
-				TraceID:     traceID,
-				Traceparent: childTraceparent,
-				TaskID:      msg.TaskID,
-				Source:      "worker",
-				ErrorReason: "ai_runtime_error",
-			})
-			return // do NOT delete from SQS — allow redelivery
+			return
 		}
 	}
 
@@ -253,7 +280,7 @@ type inferResult struct {
 }
 
 func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, traceparent string) (inferResult, error) {
-	deadline := time.Now().Add(300 * time.Second)
+	deadline := time.Now().Add(570 * time.Second)
 	inferCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
@@ -270,7 +297,7 @@ func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, tracepare
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("traceparent", traceparent)
 
-	client := &http.Client{Timeout: 305 * time.Second}
+	client := &http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return inferResult{}, err

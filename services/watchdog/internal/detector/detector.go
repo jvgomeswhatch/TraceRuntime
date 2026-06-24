@@ -152,6 +152,7 @@ func (d *Detector) Run(ctx context.Context) {
 
 func (d *Detector) poll(ctx context.Context) {
 	start := time.Now()
+	d.reconcileActiveState(ctx)
 	d.detectStaleWorkers(ctx)
 	d.detectWorkerDown(ctx)
 	d.detectQueueLag(ctx)
@@ -167,6 +168,42 @@ func (d *Detector) poll(ctx context.Context) {
 	metrics.ActiveIncidents.Set(float64(active))
 
 	slog.Info("detector.poll_completed", "duration_seconds", elapsed, "active_incidents", active)
+}
+
+// reconcileActiveState removes entries from the in-memory dedup map that were
+// resolved externally (e.g. direct SQL updates by the chaos runner).
+func (d *Detector) reconcileActiveState(ctx context.Context) {
+	d.mu.Lock()
+	if len(d.active) == 0 {
+		d.mu.Unlock()
+		return
+	}
+
+	ids := make(map[string]string, len(d.active))
+	for key, entry := range d.active {
+		ids[entry.eventID] = key
+	}
+	d.mu.Unlock()
+
+	dbActive, err := d.db.ListActiveHealingEvents(ctx)
+	if err != nil {
+		slog.Warn("detector.reconcile query failed", "error", err)
+		return
+	}
+
+	stillActive := make(map[string]bool, len(dbActive))
+	for _, ev := range dbActive {
+		stillActive[ev.ID] = true
+	}
+
+	d.mu.Lock()
+	for eventID, key := range ids {
+		if !stillActive[eventID] {
+			delete(d.active, key)
+			slog.Info("detector.reconcile_evicted", "key", key, "event_id", eventID)
+		}
+	}
+	d.mu.Unlock()
 }
 
 // ---------------------------------------------------------------------------

@@ -159,3 +159,37 @@ test-integration:
 	cd tests/integration && go test -v -count=1 -timeout=5m ./...
 
 test-all: test test-integration
+
+# ── Chaos Testing ─────────────────────────────────────────────────────────────
+.PHONY: chaos-build chaos-up chaos-down chaos-reset chaos
+
+chaos-build:
+	docker compose --profile full build
+
+chaos-up:
+	@openssl rand -hex 32 > .chaos.token
+	docker network create traceruntime 2>/dev/null || true
+	docker compose -f infra/observability/docker-compose.yml up -d
+	CHAOS_ENABLED=true INTERNAL_TOKEN=$$(cat .chaos.token) \
+		docker compose --profile full up -d
+	@echo "Chaos token persisted to .chaos.token"
+
+chaos-down:
+	docker compose --profile full down
+	docker compose -f infra/observability/docker-compose.yml down
+	@rm -f .chaos.token
+
+chaos-reset:
+	docker compose --profile full down -v
+	docker compose -f infra/observability/docker-compose.yml down -v
+	@rm -f .chaos.token
+	$(MAKE) bootstrap
+
+chaos:
+	@docker compose ps --format '{{.Service}}' | head -1 > /dev/null 2>&1 || \
+		(echo "ERROR: services not running. Run 'make chaos-up' first." && exit 1)
+	@test -f .chaos.token || (echo "ERROR: .chaos.token not found. Run 'make chaos-up' first." && exit 1)
+	cd cmd/chaos && INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
+		--output-dir=../../$(or $(OUTPUT_DIR),results) \
+		$(if $(SCENARIO),--scenario=$(SCENARIO),) \
+		$(if $(LIST),--list=$(LIST),)

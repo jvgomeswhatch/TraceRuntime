@@ -20,6 +20,7 @@ from metrics import (
 )
 from graph import build_graph
 from state import GraphState
+from chaos_config import CHAOS_ENABLED, validate_chaos_startup, chaos_router, chaos_state
 
 class _JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -53,6 +54,10 @@ async def lifespan(app: FastAPI):
     init_telemetry("traceruntime-ai-runtime")
     _infer_tracer = get_tracer("traceruntime-ai-runtime")
     _graph = build_graph()
+    if CHAOS_ENABLED:
+        validate_chaos_startup()
+        app.include_router(chaos_router)
+        log.info("chaos endpoints enabled")
     log.info("ai-runtime started")
     yield
     log.info("ai-runtime shutting down")
@@ -114,6 +119,9 @@ async def infer(body: InferRequestModel, request: Request):
                     "completion_tokens": 0,
                     "tokens_per_second": 0.0,
                 }
+
+                if CHAOS_ENABLED:
+                    await chaos_state.apply_delay_async()
 
                 result = _graph.invoke(initial_state)
 

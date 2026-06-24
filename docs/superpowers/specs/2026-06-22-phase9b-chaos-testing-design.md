@@ -310,26 +310,26 @@ Global `CHAOS_TIMEOUT` (default 15m) is a hard ceiling for the entire suite. Per
 
 ### Scenario 3: AI Runtime Failure
 
-**Hypothesis:** With ai-runtime stopped, tasks fail gracefully. Worker does not crash. After restart, system stabilizes.
+**Hypothesis:** With ai-runtime stopped, worker does not crash. Tasks are reverted to `pending` for SQS retry. After ai-runtime restart, retried tasks complete normally — validating end-to-end resilience via the SQS retry mechanism.
 
 | Phase | Action |
 |---|---|
 | Setup | Confirm system healthy; submit 1 task and wait for `completed` (smoke test) |
 | Inject | `docker.Stop("ai-runtime")` + submit 2 tasks |
-| Observe | Poll task status + worker health + healing events (timeout: 120s) |
-| Validate | Assertions below |
-| Cleanup | `docker.Start("ai-runtime")`; wait healthy; confirm worker healthy |
+| Observe | Wait 15s, verify worker healthy, check tasks reverted to `pending` |
+| Validate | Restart ai-runtime; wait for injected tasks to complete via SQS retry; submit 1 new task and confirm it completes |
+| Cleanup | Ensure ai-runtime running and healthy; drain queue; resolve healing events |
 
 **Functional SLOs:**
-- Tasks submitted during failure transition to `failed`
 - Worker remains healthy (heartbeat active, health endpoint 200)
 - Watchdog does NOT emit `worker.stale` or `worker.down` (worker is alive, only ai-runtime is down)
-- After ai-runtime restart, new tasks complete normally
+- Injected tasks complete via SQS retry after ai-runtime recovery (not permanently failed on first attempt)
+- New post-recovery task completes normally
 
 **Timing SLOs:**
 - Recovery (ai-runtime healthy after restart) < 60s
 
-**Metrics captured:** `tasks_failed_count`, `worker_healthy_during`, `recovery_time_s`
+**Metrics captured:** `pending_count`, `worker_healthy_during`, `recovery_time_s`, `inject_tasks_retried`
 
 ### Scenario 4: Runtime Hang (Container Pause)
 

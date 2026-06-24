@@ -341,39 +341,66 @@ Incidents resolved:
 
 - Docker/WSL2 clock drift causing negative processing durations — root cause identified and fixed
 
-## 9B — Chaos Testing
+## 9B — Chaos Testing ✅
 
-Test:
+Chaos testing framework with 6 scenarios, all validated from clean state.
 
-- worker crash
-- AI runtime failure
-- queue congestion
-- latency spikes
+Delivered:
 
-Goal:
+- Chaos runner CLI (`cmd/chaos/`) with preflight checks, SLO validation, JSON reports
+- Docker controller (kill, stop, start, pause, unpause, health, restart policy)
+- Checker (PostgreSQL healing events, heartbeats, SQS queue depth, HTTP health)
+- 6 scenarios: worker-crash, runtime-hang, ai-failure, postgres-failure, queue-flood, slow-inference
 
-- validate resilience
-- validate observability
-- validate recovery flows
+Results (from clean `make chaos-reset`):
+
+| Scenario | Status | Duration | Key Detection |
+|---|---|---|---|
+| worker-crash | PASS | 61s | `worker.stale` detected in 3s |
+| runtime-hang | PASS | 340s | `task.stuck` detected at 300s threshold |
+| ai-failure | PASS | 540s | Tasks retry via SQS, complete after recovery |
+| postgres-failure | PASS | 35s | Graceful degradation, auto-recovery |
+| queue-flood | PASS | — | Admission control, backpressure |
+| slow-inference | PASS | — | Latency detection, timeout handling |
+
+Architectural fixes discovered and resolved during chaos testing:
+
+- Worker HTTP timeout hierarchy: watchdog threshold (300s) + poll interval (15s) < worker HTTP timeout (570s) — watchdog detects before worker acts
+- Watchdog dedup map synchronization: `reconcileActiveState()` per poll cycle reconciles in-memory map with DB truth
+- Immediate heartbeat on worker startup (before ticker) — eliminates detection gap on recovery
+- Docker restart policy control (`DisableRestart`/`EnableRestart`) for crash simulation
+- Deterministic test setup: resolve events, verify zero active, fresh heartbeat before injection
+- AI runtime failure: worker reverts task to `pending` + `ChangeMessageVisibility(30s)` for SQS retry (not permanent fail on first attempt)
+- Clock drift fix in chaos checker: `HeartbeatAgeSec()` computes age server-side in PostgreSQL to avoid host/container clock skew
 
 ## 9C — Security & Infrastructure Hardening
 
-Security items deferred from earlier phases — require API Gateway/reverse proxy:
+### 9C.1 — Security Hardening ✅
 
-- [ ] Add authentication to `/api/operations/summary` (needs BFF/proxy — client-side token is insecure)
-- [ ] Server-side Origin validation on SSE `/events` endpoint (define allowed origins list)
+- [x] Configurable CORS via `ALLOWED_ORIGINS` env var
+- [x] Server-side Origin validation on SSE `/events` endpoint
+- [x] `INTERNAL_TOKEN` auth on operational endpoints (`/api/operations/summary`, `/api/events/recent`, `/api/capacity/latest`)
+- [x] Rate limiting extended to GET endpoints (30 RPS / burst 60)
+- [x] `Content-Security-Policy` header on all API responses
+- [x] Watchdog Dockerfile non-root user (`USER app`)
 
-Testing & CI expansion:
+### 9C.2 — Integration Testing ✅
 
-- [ ] Create `tests/integration/` with dedicated `go.mod` for end-to-end tests
-- [ ] End-to-end integration test: API → SQS → Worker → PostgreSQL → S3 flow
-- [ ] Add CI Job 2 service containers for API + Worker (build and run in CI)
-- [ ] Resilience tests: queue lag, visibility timeout expiry, DLQ routing
-- [ ] CI Job 3 — Chaos Validation: kill worker, simulate queue lag, verify recovery + DLQ + alerts
-- [ ] Auto-healing validation pipelines in CI
-- [ ] Self-repair automation tests
-- [ ] Recovery validation: verify SLO compliance after controlled failure injection
-- [ ] Automated chaos scenarios in CI
+- [x] `tests/integration/` with dedicated `go.mod`
+- [x] 22 tests across 6 files: task lifecycle, failure path, queue behavior, SSE events, idempotency, healing events
+- [x] Mock AI Runtime (`tests/integration/cmd/mock-ai-runtime/`)
+- [x] `docker-compose.test.yml` override for test environment
+- [x] `make test-integration` target
+
+### 9C.3 — CI Hardening
+
+Pendente. Design spec em `docs/superpowers/specs/2026-06-22-phase9c3-ci-hardening-design.md`.
+
+- [ ] Fix stale smoke test assertion: `visibility_timeout = 150` → `360`
+- [ ] Job 4 — E2E Validation: build API/Worker/Watchdog containers in CI, run integration tests
+- [ ] Mock AI Runtime in CI (standalone Go binary from 9C.2)
+- [ ] Service logs upload as artifacts on failure
+- [ ] Watchdog build + test in Integration job
 
 ---
 
