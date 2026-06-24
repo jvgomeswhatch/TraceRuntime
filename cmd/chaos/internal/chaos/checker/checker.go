@@ -228,6 +228,25 @@ func (c *Checker) PurgeQueue(ctx context.Context) error {
 	return err
 }
 
+func (c *Checker) PurgeDLQ(ctx context.Context) error {
+	_, err := c.sqs.PurgeQueue(ctx, &sqs.PurgeQueueInput{
+		QueueUrl: aws.String(c.dlqURL),
+	})
+	return err
+}
+
+func (c *Checker) FailStuckTasks(ctx context.Context, reason string) (int64, error) {
+	tag, err := c.db.Exec(ctx,
+		`UPDATE tasks SET status = 'failed', completed_at = NOW(), error_message = $1, updated_at = NOW()
+		 WHERE status = 'processing'`,
+		reason,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("fail stuck tasks: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // --- HTTP ---
 
 func (c *Checker) httpHealth(ctx context.Context, url string) (int, error) {

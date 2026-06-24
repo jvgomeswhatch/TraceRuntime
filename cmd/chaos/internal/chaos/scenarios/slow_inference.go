@@ -235,9 +235,7 @@ func (s *SlowInference) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) 
 		slog.Warn("slow-inference: queue drain wait", "error", err)
 	}
 
-	if err := sc.Checker.ResolveAllActiveEvents(ctx); err != nil {
-		slog.Warn("slow-inference: resolve events", "error", err)
-	}
+	stabilizeSystem(ctx, "slow-inference", sc)
 
 	slog.Info("slow-inference: cleanup complete")
 	return nil

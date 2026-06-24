@@ -215,10 +215,7 @@ func (s *RuntimeHang) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) er
 		slog.Warn("runtime-hang: queue did not drain within 120s")
 	}
 
-	// Resolve all active healing events
-	if err := sc.Checker.ResolveAllActiveEvents(ctx); err != nil {
-		slog.Warn("runtime-hang: failed to resolve events", "error", err)
-	}
+	stabilizeSystem(ctx, "runtime-hang", sc)
 
 	slog.Info("runtime-hang: cleanup complete")
 	return nil

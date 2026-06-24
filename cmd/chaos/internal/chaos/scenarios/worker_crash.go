@@ -361,34 +361,7 @@ func (s *WorkerCrash) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) er
 		slog.Warn("worker-crash: queue did not drain within 60s")
 	}
 
-	// Clean up stale heartbeats from dead workers.
-	if deleted, err := sc.Checker.DeleteStaleHeartbeats(ctx, 30*time.Second); err != nil {
-		slog.Warn("worker-crash: delete stale heartbeats", "error", err)
-	} else if deleted > 0 {
-		slog.Info("worker-crash: deleted stale heartbeats", "count", deleted)
-	}
-
-	// Resolve all active healing events.
-	if err := sc.Checker.ResolveAllActiveEvents(ctx); err != nil {
-		slog.Warn("worker-crash: failed to resolve events", "error", err)
-	}
-
-	// Wait for watchdog to reconcile and reach zero active incidents.
-	_, err = sc.Checker.WaitFor(ctx, checker.WaitCondition{
-		Name: "zero-active-events",
-		Check: func(ctx context.Context) (bool, error) {
-			events, err := sc.Checker.ActiveHealingEvents(ctx)
-			if err != nil {
-				return false, err
-			}
-			return len(events) == 0, nil
-		},
-		Timeout:  30 * time.Second,
-		Interval: 3 * time.Second,
-	})
-	if err != nil {
-		slog.Warn("worker-crash: cleanup — events not fully resolved", "error", err)
-	}
+	stabilizeSystem(ctx, "worker-crash", sc)
 
 	slog.Info("worker-crash: cleanup complete")
 	return nil

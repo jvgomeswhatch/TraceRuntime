@@ -336,9 +336,7 @@ func (a *AIFailure) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) erro
 		slog.Warn("ai-failure: cleanup queue drain", "error", err)
 	}
 
-	if err := sc.Checker.ResolveAllActiveEvents(ctx); err != nil {
-		slog.Warn("ai-failure: cleanup resolve events", "error", err)
-	}
+	stabilizeSystem(ctx, "ai-failure", sc)
 
 	slog.Info("ai-failure: cleanup complete")
 	return nil

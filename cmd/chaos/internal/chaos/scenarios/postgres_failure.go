@@ -286,6 +286,8 @@ func (s *PostgresFailure) Cleanup(ctx context.Context, sc *chaos.ScenarioContext
 		slog.Warn("postgres-failure: queue did not drain within 60s")
 	}
 
+	stabilizeSystem(ctx, "postgres-failure", sc)
+
 	slog.Info("postgres-failure: cleanup complete")
 	return nil
 }

@@ -2,12 +2,15 @@ package scenarios
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/runtime-platform/cmd/chaos/internal/chaos"
+	"github.com/runtime-platform/cmd/chaos/internal/chaos/checker"
 )
 
 // submitTask sends a POST /tasks request and returns the created task_id.
@@ -70,6 +73,57 @@ func timingSLO(actual, maxExpected float64) chaos.SLOStatus {
 		return chaos.SLOPass
 	}
 	return chaos.SLOFail
+}
+
+// stabilizeSystem brings the system to a clean state after a chaos scenario.
+// Every Cleanup() should call this as the final step to ensure the next
+// scenario starts from a deterministic baseline.
+func stabilizeSystem(ctx context.Context, scenario string, sc *chaos.ScenarioContext) {
+	// 1. Fail any tasks stuck in processing.
+	if failed, err := sc.Checker.FailStuckTasks(ctx, scenario+"-cleanup"); err != nil {
+		slog.Warn(scenario+": cleanup fail stuck tasks", "error", err)
+	} else if failed > 0 {
+		slog.Info(scenario+": cleanup failed stuck tasks", "count", failed)
+	}
+
+	// 2. Purge DLQ (messages from failed/retried tasks).
+	dlqDepth, _ := sc.Checker.DLQDepth(ctx)
+	if dlqDepth > 0 {
+		if err := sc.Checker.PurgeDLQ(ctx); err != nil {
+			slog.Warn(scenario+": cleanup purge DLQ", "error", err)
+		} else {
+			slog.Info(scenario+": cleanup purged DLQ", "messages", dlqDepth)
+		}
+	}
+
+	// 3. Delete stale heartbeats.
+	if deleted, err := sc.Checker.DeleteStaleHeartbeats(ctx, 30*time.Second); err != nil {
+		slog.Warn(scenario+": cleanup delete stale heartbeats", "error", err)
+	} else if deleted > 0 {
+		slog.Info(scenario+": cleanup deleted stale heartbeats", "count", deleted)
+	}
+
+	// 4. Resolve all active healing events.
+	if err := sc.Checker.ResolveAllActiveEvents(ctx); err != nil {
+		slog.Warn(scenario+": cleanup resolve events", "error", err)
+	}
+
+	// 5. Wait for watchdog to reconcile — zero active events in DB.
+	_, err := sc.Checker.WaitFor(ctx, checker.WaitCondition{
+		Name: "stabilize-zero-events",
+		Check: func(ctx context.Context) (bool, error) {
+			events, err := sc.Checker.ActiveHealingEvents(ctx)
+			if err != nil {
+				return false, err
+			}
+			return len(events) == 0, nil
+		},
+		Timeout:  30 * time.Second,
+		Interval: 3 * time.Second,
+	})
+	if err != nil {
+		slog.Warn(scenario+": cleanup events not fully resolved", "error", err)
+	}
 }
 
 // setChaosConfig sends a POST to /internal/chaos/config with the given delay.

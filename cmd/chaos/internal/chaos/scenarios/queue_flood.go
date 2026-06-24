@@ -220,29 +220,7 @@ func (q *QueueFlood) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) err
 		slog.Warn("queue-flood: purge queue error", "error", err)
 	}
 
-	if err := sc.Checker.ResolveAllActiveEvents(ctx); err != nil {
-		slog.Warn("queue-flood: resolve events error", "error", err)
-	}
-
-	// Wait for system to stabilize.
-	_, err := sc.Checker.WaitFor(ctx, checker.WaitCondition{
-		Name: "system stable after queue-flood",
-		Check: func(ctx context.Context) (bool, error) {
-			depth, err := sc.Checker.QueueDepth(ctx)
-			if err != nil {
-				return false, err
-			}
-			if depth > 0 {
-				return false, nil
-			}
-			return sc.Checker.AllContainersHealthy(ctx, []string{"api", "worker", "watchdog"})
-		},
-		Timeout:  30 * time.Second,
-		Interval: sc.PollInterval,
-	})
-	if err != nil {
-		slog.Warn("queue-flood: cleanup wait error", "error", err)
-	}
+	stabilizeSystem(ctx, "queue-flood", sc)
 
 	slog.Info("queue-flood: cleanup complete")
 	return nil
