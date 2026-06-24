@@ -78,6 +78,16 @@ func (s *WorkerCrash) Setup(ctx context.Context, sc *chaos.ScenarioContext) erro
 		return fmt.Errorf("wait for fresh heartbeat: %w", err)
 	}
 
+	// Validate setup state before proceeding.
+	setupAge, _ := sc.Checker.HeartbeatAgeSec(ctx)
+	setupEvents, _ := sc.Checker.ActiveHealingEvents(ctx)
+	setupTypes := eventTypeList(setupEvents)
+	slog.Info("worker-crash: setup validation",
+		"active_events", len(setupEvents),
+		"event_types", setupTypes,
+		"heartbeat_age_seconds", setupAge,
+	)
+
 	slog.Info("worker-crash: setup — state clean, submitting task")
 	taskID, err := submitTask(sc.Config.APIURL, "chaos-worker-crash-test")
 	if err != nil {
@@ -87,6 +97,17 @@ func (s *WorkerCrash) Setup(ctx context.Context, sc *chaos.ScenarioContext) erro
 	slog.Info("worker-crash: task submitted, waiting 5s for pickup", "task_id", taskID)
 
 	time.Sleep(5 * time.Second)
+
+	// Final state check — if events appeared during the 5s wait, the system
+	// is not truly stable and the test will produce false results.
+	preInjectAge, _ := sc.Checker.HeartbeatAgeSec(ctx)
+	preInjectEvents, _ := sc.Checker.ActiveHealingEvents(ctx)
+	preInjectTypes := eventTypeList(preInjectEvents)
+	slog.Info("worker-crash: pre-inject state",
+		"active_events", len(preInjectEvents),
+		"event_types", preInjectTypes,
+		"heartbeat_age_seconds", preInjectAge,
+	)
 
 	slog.Info("worker-crash: setup complete — state deterministic")
 	return nil
@@ -166,6 +187,14 @@ func (s *WorkerCrash) Observe(ctx context.Context, sc *chaos.ScenarioContext) (*
 	)
 
 	return observed, nil
+}
+
+func eventTypeList(events []checker.HealingEvent) []string {
+	types := make([]string, 0, len(events))
+	for _, ev := range events {
+		types = append(types, ev.EventType)
+	}
+	return types
 }
 
 func containsStr(slice []string, s string) bool {
