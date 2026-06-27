@@ -101,13 +101,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: ai-runtime/requirements.txt
+          cache-dependency-path: ai-runtime/requirements-dev.txt
 
       - name: Python install
-        run: cd ai-runtime && pip install -r requirements.txt
+        run: cd ai-runtime && pip install -r requirements-dev.txt
 
       - name: Python lint
-        run: cd ai-runtime && ruff check .
+        run: cd ai-runtime && python -m ruff check .
 
       - name: Python test
         run: cd ai-runtime && python -m pytest -v
