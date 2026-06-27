@@ -122,6 +122,8 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  // Declared before scheduleReconnect so the ref exists when the timeout fires
+  const connectRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     let cancelled = false;
@@ -270,8 +272,6 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
     };
   }, [handleHealingEvent, scheduleReconnect]);
 
-  // Stable ref so scheduleReconnect's timeout can always call the latest connect
-  const connectRef = useRef(connect);
   useEffect(() => {
     connectRef.current = connect;
   }, [connect]);

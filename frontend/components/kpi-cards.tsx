@@ -53,11 +53,6 @@ function buildThroughputSpark(events: { timestamp: string }[]): { v: number }[] 
   return buckets.map((count) => ({ v: count }));
 }
 
-function formatWindow(seconds: number): string {
-  if (seconds < 60) return `last ${seconds}s`;
-  return `last ${Math.round(seconds / 60)}m`;
-}
-
 export const KpiCards = React.memo(function KpiCards() {
   const [metrics, setMetrics] = useState<RuntimeMetrics | null>(null);
   const { events } = useSSEContext();
@@ -91,8 +86,6 @@ export const KpiCards = React.memo(function KpiCards() {
     const avgLatency = metrics ? metrics.avg_latency_ms / 1000 : 0;
     const errorRate = metrics?.error_rate ?? 0;
     const queueDepth = metrics?.queue_depth ?? 0;
-    const windowLabel = metrics ? formatWindow(metrics.window_seconds) : "";
-
     const totalFinished = metrics ? metrics.completed + metrics.failed : 0;
 
     return [
