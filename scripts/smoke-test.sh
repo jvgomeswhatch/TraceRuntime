@@ -49,17 +49,17 @@ else
   fail "traceruntime-outputs exists" "bucket not found"
 fi
 
-# 4. visibility_timeout = 150
+# 4. visibility_timeout = 360
 VTIMEOUT=$(aws --endpoint-url="$ENDPOINT" --region="$REGION" \
   sqs get-queue-attributes \
   --queue-url "$QUEUE_URL" \
   --attribute-names VisibilityTimeout \
   --query 'Attributes.VisibilityTimeout' \
   --output text 2>/dev/null)
-if [ "$VTIMEOUT" = "150" ]; then
-  ok "visibility_timeout = 150"
+if [ "$VTIMEOUT" = "360" ]; then
+  ok "visibility_timeout = 360"
 else
-  fail "visibility_timeout = 150" "got ${VTIMEOUT:-<empty>}"
+  fail "visibility_timeout = 360" "got ${VTIMEOUT:-<empty>}"
 fi
 
 # 5. receive_wait_time_seconds = 20

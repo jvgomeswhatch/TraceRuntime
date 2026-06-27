@@ -12,14 +12,18 @@ import (
 
 // recentEvent matches the SSE event shape the frontend expects.
 type recentEvent struct {
-	EventID     string `json:"event_id"`
-	EventType   string `json:"event_type"`
-	TaskID      string `json:"task_id"`
-	TraceID     string `json:"trace_id"`
-	Traceparent string `json:"traceparent"`
-	Timestamp   string `json:"timestamp"`
-	Source      string `json:"source"`
-	ErrorReason string `json:"error_reason,omitempty"`
+	EventID          string  `json:"event_id"`
+	EventType        string  `json:"event_type"`
+	TaskID           string  `json:"task_id"`
+	TraceID          string  `json:"trace_id"`
+	Traceparent      string  `json:"traceparent"`
+	Timestamp        string  `json:"timestamp"`
+	Source           string  `json:"source"`
+	ErrorReason      string  `json:"error_reason,omitempty"`
+	PromptTokens     int     `json:"prompt_tokens,omitempty"`
+	CompletionTokens int     `json:"completion_tokens,omitempty"`
+	TokensPerSecond  float64 `json:"tokens_per_second,omitempty"`
+	Model            string  `json:"model,omitempty"`
 }
 
 // RecentEventsHandler returns historical task events from PostgreSQL so the
@@ -76,6 +80,10 @@ func (h *RecentEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		if t.ErrorMessage != "" {
 			ev.ErrorReason = t.ErrorMessage
 		}
+		ev.PromptTokens = t.PromptTokens
+		ev.CompletionTokens = t.CompletionTokens
+		ev.TokensPerSecond = t.TokensPerSecond
+		ev.Model = t.Model
 		events = append(events, ev)
 	}
 

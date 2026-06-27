@@ -73,8 +73,11 @@ type sseEvent struct {
 	Model               string `json:"model,omitempty"`
 	ExecutionStatus     string `json:"execution_status,omitempty"`
 	InferenceDurationMs int    `json:"inference_duration_ms,omitempty"`
-	ErrorReason         string `json:"error_reason,omitempty"`
-	S3Key               string `json:"s3_key,omitempty"`
+	ErrorReason         string  `json:"error_reason,omitempty"`
+	S3Key               string  `json:"s3_key,omitempty"`
+	PromptTokens        int     `json:"prompt_tokens,omitempty"`
+	CompletionTokens    int     `json:"completion_tokens,omitempty"`
+	TokensPerSecond     float64 `json:"tokens_per_second,omitempty"`
 }
 
 const maxReceiveCount = 3
@@ -267,6 +270,9 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 		ExecutionStatus:     "completed",
 		InferenceDurationMs: ir.DurationMs,
 		S3Key:               s3Key,
+		PromptTokens:        ir.PromptTokens,
+		CompletionTokens:    ir.CompletionTokens,
+		TokensPerSecond:     ir.TokensPerSecond,
 	})
 }
 

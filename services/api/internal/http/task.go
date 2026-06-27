@@ -157,6 +157,11 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		enqueueSpan.End()
 		telemetry.Error(ctx, "failed to publish task", "task_id", taskID, "error", err)
+		if h.db != nil {
+			if dbErr := h.db.SetFailed(ctx, taskID, "sqs: queue unavailable"); dbErr != nil {
+				telemetry.Error(ctx, "failed to mark task as failed", "task_id", taskID, "error", dbErr)
+			}
+		}
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -164,6 +169,11 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		enqueueSpan.End()
 		metrics.QueueRejected.Inc()
 		telemetry.Warn(ctx, "task rejected — queue full", "task_id", taskID)
+		if h.db != nil {
+			if dbErr := h.db.SetFailed(ctx, taskID, "queue full"); dbErr != nil {
+				telemetry.Error(ctx, "failed to mark task as failed", "task_id", taskID, "error", dbErr)
+			}
+		}
 		jsonError(w, "queue_full", http.StatusServiceUnavailable)
 		return
 	}

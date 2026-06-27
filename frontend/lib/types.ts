@@ -12,6 +12,9 @@ export interface SSEEvent {
   validation_status?: string;
   inference_duration_ms?: number;
   error_reason?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  tokens_per_second?: number;
 }
 
 export interface CreateTaskResponse {
@@ -57,6 +60,17 @@ export interface HealingSSEEvent {
   details: Record<string, unknown>;
   source: string;
   timestamp: string;
+}
+
+export interface RuntimeMetrics {
+  window_seconds: number;
+  p95_latency_ms: number;
+  avg_latency_ms: number;
+  success_rate: number;
+  error_rate: number;
+  completed: number;
+  failed: number;
+  queue_depth: number;
 }
 
 export interface CapacityLatencyBucket {

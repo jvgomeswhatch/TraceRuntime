@@ -392,15 +392,70 @@ Architectural fixes discovered and resolved during chaos testing:
 - [x] `docker-compose.test.yml` override for test environment
 - [x] `make test-integration` target
 
-### 9C.3 — CI Hardening
+### 9C.3 — CI Hardening ✅
 
-Pendente. Design spec em `docs/superpowers/specs/2026-06-22-phase9c3-ci-hardening-design.md`.
+- [x] CI triggers on `main` (deploy) and `developer` (testing) branches
+- [x] Fix stale smoke test assertion: `visibility_timeout = 150` → `360`
+- [x] Watchdog added to Quality Gate (build + test + lint)
+- [x] Job 3 — E2E Validation: Docker Buildx builds (API/Worker/Watchdog/mock-ai-runtime), LocalStack + PostgreSQL service containers, health polling with failure diagnostics, integration test execution, artifact uploads (logs + test reports)
+- [x] E2E dependency DAG: `needs: [quality-gate, integration]`
+- [x] Docker Buildx cache with per-service scopes (`type=gha`)
+- [x] `.gitignore` hardened: `.env.*` pattern covers all env file variants
 
-- [ ] Fix stale smoke test assertion: `visibility_timeout = 150` → `360`
-- [ ] Job 4 — E2E Validation: build API/Worker/Watchdog containers in CI, run integration tests
-- [ ] Mock AI Runtime in CI (standalone Go binary from 9C.2)
-- [ ] Service logs upload as artifacts on failure
-- [ ] Watchdog build + test in Integration job
+### 9C.4 — Operational Metrics & Dashboard Separation ✅
+
+Separated runtime metrics (live operational data) from benchmark data (loadtest reports). Previously, the dashboard KPI cards (Throughput, P95, Error Rate, Queue Depth) pulled data exclusively from loadtest JSON files — meaning they showed stale benchmark data or nothing at all during normal operation.
+
+Delivered:
+
+- `GET /api/metrics/runtime` endpoint — calculates real-time metrics from PostgreSQL `tasks` table within a configurable time window (default 5 min)
+- Metrics layer (`db/metrics.go`) with single CTE query: throughput, P95 latency, avg latency, success rate, error rate — only from finished tasks (`completed` + `failed`), never `pending`/`processing`
+- Queue depth from SQS (`GetQueueAttributes`) or in-memory queue, not derived from tasks table
+- Endpoint protected by `X-Internal-Token` (same security model as other operational endpoints)
+- KPI Cards now show live data with 10s polling interval, labels show window ("last 5m"), avg latency, completed/failed counts
+- Capacity Report card renamed to "Last Benchmark" — clearly identifies data as benchmark results from `make loadtest`
+- `RuntimeMetrics` TypeScript interface added to frontend types
+
+Architecture decision:
+
+- **Runtime Metrics** = live operational telemetry from database (tasks processed in last N minutes)
+- **Last Benchmark** = static snapshot from last `make loadtest` run (JSON file in `results/`)
+- These are never mixed — runtime data never overwrites benchmark, benchmark never pollutes operational view
+- `results/` directory contains only loadtest/chaos JSON reports, served via `GET /api/capacity/latest`
+
+### 9C.5 — Token Metrics Pipeline ✅
+
+Connected token counting from AI Runtime through to the frontend dashboard. Token data (prompt_tokens, completion_tokens, tokens_per_second, model) was already collected by the AI Runtime and stored in PostgreSQL, but never surfaced in the SSE event stream or frontend.
+
+Delivered:
+
+- Worker SSE events now include `prompt_tokens`, `completion_tokens`, `tokens_per_second` fields on `task.completed`
+- API `/api/events/recent` endpoint returns token fields from PostgreSQL
+- Frontend Event Feed shows inline token count and tok/s per task event
+- Frontend Tasks table has "Tokens" and "tok/s" columns
+- `SSEEvent` TypeScript interface extended with token fields
+
+### 9C.6 — Task Lifecycle Integrity ✅
+
+Fixed orphaned pending tasks caused by SQS publish failures.
+
+Previously, the API inserted a task into PostgreSQL as `pending` before publishing to SQS. If SQS was unavailable (e.g., LocalStack restarted), the publish failed but the task remained `pending` forever — no worker would ever process it.
+
+Delivered:
+
+- `db.SetFailed()` method marks task as `failed` with error reason when SQS publish fails
+- API calls `SetFailed` in both error paths: SQS unavailable (`"sqs: queue unavailable"`) and queue full (`"queue full"`)
+- Tasks no longer get stuck as orphaned `pending`
+
+### 9C.7 — Build/Run Separation ✅
+
+Separated `make build` (compile) from `make up` (start) in Makefile.
+
+Previously, `make up` always ran `--build`, causing unnecessary rebuilds on every start. Now:
+
+- `make up` / `make up-full` — start services using existing images (fast, daily use)
+- `make build` — `docker compose --profile full build` (compile only, no start)
+- `make rebuild` — `docker compose --profile full up -d --build` (build + start)
 
 ---
 

@@ -56,6 +56,12 @@ up-full:
 	docker compose -f infra/observability/docker-compose.yml up -d
 	docker compose --profile full up -d
 
+build:
+	docker compose --profile full build
+
+rebuild:
+	docker compose --profile full up -d --build
+
 down:
 	docker compose --profile full down
 	docker compose -f infra/observability/docker-compose.yml down

@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
@@ -14,7 +15,7 @@ import (
 	"github.com/runtime-platform/services/api/internal/queue"
 )
 
-func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, database *db.DB, resultsDir string, allowedOrigins []string, internalToken string) http.Handler {
+func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, database *db.DB, resultsDir string, allowedOrigins []string, internalToken string, sqsClient *sqssdk.Client, sqsQueueURL string) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -36,6 +37,7 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	r.Get("/api/events/recent", tokenMw(NewRecentEventsHandler(database)).ServeHTTP)
 	r.Get("/api/operations/summary", tokenMw(NewOperationsSummaryHandler(database)).ServeHTTP)
 	r.Get("/api/capacity/latest", tokenMw(NewCapacityHandler(resultsDir)).ServeHTTP)
+	r.Get("/api/metrics/runtime", tokenMw(NewRuntimeMetricsHandler(database, sqsClient, sqsQueueURL, q)).ServeHTTP)
 
 	return r
 }

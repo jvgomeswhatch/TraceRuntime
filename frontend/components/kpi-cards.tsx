@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  Activity,
+  CheckCircle2,
   Clock,
   AlertTriangle,
   Inbox,
@@ -15,7 +15,7 @@ import {
   AreaChart,
   Area,
 } from "recharts";
-import type { CapacityReport } from "@/lib/types";
+import type { RuntimeMetrics } from "@/lib/types";
 import { useSSEContext } from "@/components/providers/sse-provider";
 
 interface KpiData {
@@ -53,67 +53,70 @@ function buildThroughputSpark(events: { timestamp: string }[]): { v: number }[] 
   return buckets.map((count) => ({ v: count }));
 }
 
-export const KpiCards = React.memo(function KpiCards() {
-  const [report, setReport] = useState<CapacityReport | null>(null);
-  const { events } = useSSEContext();
+function formatWindow(seconds: number): string {
+  if (seconds < 60) return `last ${seconds}s`;
+  return `last ${Math.round(seconds / 60)}m`;
+}
 
-  const fetchReport = useCallback(async () => {
+export const KpiCards = React.memo(function KpiCards() {
+  const [metrics, setMetrics] = useState<RuntimeMetrics | null>(null);
+  const { events } = useSSEContext();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchMetrics = useCallback(async () => {
     try {
       const token = process.env.NEXT_PUBLIC_INTERNAL_TOKEN;
       const headers: HeadersInit = token ? { "X-Internal-Token": token } : {};
-      const res = await fetch("http://localhost:8082/api/capacity/latest", { headers });
+      const res = await fetch("http://localhost:8082/api/metrics/runtime", { headers });
       if (!res.ok) return;
-      const data: CapacityReport = await res.json();
-      setReport(data);
+      const data: RuntimeMetrics = await res.json();
+      setMetrics(data);
     } catch {
-      // no capacity data
+      // runtime metrics unavailable
     }
   }, []);
 
   useEffect(() => {
-    fetchReport();
-  }, [fetchReport]);
+    fetchMetrics();
+    intervalRef.current = setInterval(fetchMetrics, 10_000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [fetchMetrics]);
 
   const throughputSpark = useMemo(() => buildThroughputSpark(events), [events]);
 
   const kpis = useMemo<KpiData[]>(() => {
-    const throughput = report?.results.throughput_rps ?? 0;
-    const p95 = report
-      ? report.results.latency_ms.end_to_end.p95 / 1000
-      : 0;
-    const errorRate = report && report.results.tasks_submitted > 0
-      ? (report.results.tasks_failed / report.results.tasks_submitted) * 100
-      : 0;
-    const queueDepth = report?.queue_metrics.max_visible_messages ?? 0;
+    const p95 = metrics ? metrics.p95_latency_ms / 1000 : 0;
+    const avgLatency = metrics ? metrics.avg_latency_ms / 1000 : 0;
+    const errorRate = metrics?.error_rate ?? 0;
+    const queueDepth = metrics?.queue_depth ?? 0;
+    const windowLabel = metrics ? formatWindow(metrics.window_seconds) : "";
+
+    const totalFinished = metrics ? metrics.completed + metrics.failed : 0;
 
     return [
       {
-        id: "throughput",
-        label: "Throughput",
-        value: throughput > 0 ? throughput.toFixed(2) : "—",
-        unit: "req/s",
-        trend: throughput > 0 ? "up" : "flat",
-        trendLabel: throughput > 0 ? `${throughput.toFixed(1)} avg` : "no data",
+        id: "tasks-processed",
+        label: "Tasks Processed",
+        value: metrics ? String(totalFinished) : "—",
+        unit: "",
+        trend: totalFinished > 0 ? "up" : "flat",
+        trendLabel: metrics
+          ? `${metrics.completed} completed · ${metrics.failed} failed`
+          : "no data",
         sparkData: throughputSpark,
         color: "#34d399",
-        trendColor: throughput > 0 ? "text-emerald-400" : "text-zinc-500",
-        icon: <Activity className="size-3.5" />,
+        trendColor: totalFinished > 0 ? "text-emerald-400" : "text-zinc-500",
+        icon: <CheckCircle2 className="size-3.5" />,
       },
       {
         id: "p95-latency",
         label: "P95 Latency",
-        value: p95 > 0 ? p95.toFixed(2) : "—",
+        value: metrics ? p95.toFixed(2) : "—",
         unit: "s",
         trend: p95 > 3 ? "up" : p95 > 0 ? "down" : "flat",
-        trendLabel:
-          p95 > 0
-            ? (() => {
-                const p50 = (report?.results.latency_ms.end_to_end.p50 ?? 0) / 1000;
-                if (p50 <= 0) return "no p50 data";
-                const diff = ((p95 / p50 - 1) * 100);
-                return `${diff >= 0 ? "+" : ""}${diff.toFixed(0)}% vs p50`;
-              })()
-            : "no data",
+        trendLabel: metrics ? `avg: ${avgLatency.toFixed(1)}s` : "no data",
         sparkData: [],
         color: "#fbbf24",
         trendColor:
@@ -123,10 +126,10 @@ export const KpiCards = React.memo(function KpiCards() {
       {
         id: "error-rate",
         label: "Error Rate",
-        value: report ? `${errorRate.toFixed(1)}%` : "—",
+        value: metrics ? `${errorRate.toFixed(1)}%` : "—",
         unit: "",
         trend: errorRate > 5 ? "up" : errorRate > 0 ? "flat" : "down",
-        trendLabel: report ? `${report.results.tasks_failed} failed` : "no data",
+        trendLabel: metrics ? `${metrics.failed} failed` : "no data",
         sparkData: [],
         color: errorRate > 5 ? "#f87171" : "#34d399",
         trendColor:
@@ -140,10 +143,10 @@ export const KpiCards = React.memo(function KpiCards() {
       {
         id: "queue-depth",
         label: "Queue Depth",
-        value: report ? String(queueDepth) : "—",
+        value: metrics ? String(queueDepth) : "—",
         unit: "",
         trend: queueDepth > 10 ? "up" : queueDepth > 0 ? "down" : "flat",
-        trendLabel: report ? `peak: ${queueDepth}` : "no data",
+        trendLabel: metrics ? `${metrics.completed} completed` : "no data",
         sparkData: [],
         color: "#a78bfa",
         trendColor:
@@ -151,7 +154,7 @@ export const KpiCards = React.memo(function KpiCards() {
         icon: <Inbox className="size-3.5" />,
       },
     ];
-  }, [report, throughputSpark]);
+  }, [metrics, throughputSpark]);
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

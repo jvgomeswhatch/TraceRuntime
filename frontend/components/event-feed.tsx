@@ -194,6 +194,18 @@ const TaskEventItem = React.memo(function TaskEventItem({
           </span>
         )}
 
+        {ev.prompt_tokens != null && ev.prompt_tokens > 0 && (
+          <span className="text-xs text-zinc-500 tabular-nums">
+            {ev.prompt_tokens + (ev.completion_tokens ?? 0)} tok
+          </span>
+        )}
+
+        {ev.tokens_per_second != null && ev.tokens_per_second > 0 && (
+          <span className="text-xs text-zinc-600 tabular-nums">
+            {ev.tokens_per_second.toFixed(1)} tok/s
+          </span>
+        )}
+
         <div className="ml-auto flex items-center gap-3">
           <CopyableId label="trace" id={ev.trace_id} />
           <span className="flex items-center gap-1 tabular-nums text-[11px] text-zinc-500">

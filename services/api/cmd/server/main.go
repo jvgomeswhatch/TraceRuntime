@@ -57,6 +57,8 @@ func main() {
 
 	var publisher apihttp.Publisher
 	var q *queue.Queue
+	var sqsClient *sqssdk.Client
+	var sqsQueueURL string
 
 	queueBackend := envString("QUEUE_BACKEND", "inmemory")
 	switch queueBackend {
@@ -66,8 +68,8 @@ func main() {
 			slog.Error("failed to load AWS config", "error", err)
 			os.Exit(1)
 		}
-		sqsClient := sqssdk.NewFromConfig(awsCfg)
-		sqsQueueURL := mustEnv("SQS_QUEUE_URL")
+		sqsClient = sqssdk.NewFromConfig(awsCfg)
+		sqsQueueURL = mustEnv("SQS_QUEUE_URL")
 		publisher = apihttp.NewSQSPublisher(sqsClient, sqsQueueURL)
 		q = queue.NewQueue(1)
 		metrics.MustRegisterAll(func() float64 { return 0 })
@@ -96,7 +98,7 @@ func main() {
 		slog.Warn("INTERNAL_TOKEN not set — operational endpoints accessible without auth (dev mode)")
 	}
 
-	router := apihttp.NewRouter(broker, publisher, q, database, resultsDir, allowedOrigins, internalToken)
+	router := apihttp.NewRouter(broker, publisher, q, database, resultsDir, allowedOrigins, internalToken, sqsClient, sqsQueueURL)
 
 	port := envString("PORT", "8082")
 	srv := &http.Server{

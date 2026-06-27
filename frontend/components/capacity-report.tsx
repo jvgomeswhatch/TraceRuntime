@@ -115,7 +115,7 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <Gauge className="size-4 text-blue-400" />
-            Capacity Report
+            Last Benchmark
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -134,17 +134,18 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <Gauge className="size-4 text-blue-400" />
-            Capacity Report
+            Last Benchmark
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center gap-2 py-6 text-zinc-500 text-sm">
             <Inbox className="size-6 text-zinc-600" />
             <p className="text-center text-xs">
-              No data.{" "}
+              No benchmark data. Run{" "}
               <code className="text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
                 make loadtest
-              </code>
+              </code>{" "}
+              to generate a capacity report.
             </p>
           </div>
         </CardContent>
@@ -166,16 +167,13 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <Gauge className="size-4 text-blue-400" />
-            Capacity Report
-            <span className="text-[11px] text-zinc-500 font-normal">
-              (Latest)
-            </span>
+            Last Benchmark
           </CardTitle>
           <Badge variant="outline" className={statusBadgeClass(report.status)}>
             {report.status}
           </Badge>
         </div>
-        <p className="text-[11px] text-zinc-500 mt-1">{timestampStr}</p>
+        <p className="text-[11px] text-zinc-400 mt-1 font-medium">{timestampStr}</p>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Summary KPIs */}

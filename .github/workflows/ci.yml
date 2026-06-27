@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, developer]
   push:
-    branches: [main]
+    branches: [main, developer]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -54,6 +54,19 @@ jobs:
         with:
           version: v2.2
           working-directory: services/worker
+          args: --timeout=3m
+
+      - name: Go build (watchdog)
+        run: cd services/watchdog && go build ./...
+
+      - name: Go test (watchdog)
+        run: cd services/watchdog && go test -race -count=1 ./...
+
+      - name: golangci-lint (watchdog)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.2
+          working-directory: services/watchdog
           args: --timeout=3m
 
       # -- Terraform -----------------------------------------------------------
@@ -156,7 +169,6 @@ jobs:
     name: Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: []
 
     services:
       localstack:
@@ -232,3 +244,244 @@ jobs:
             postgres:16-alpine \
             psql "postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable" \
             -c "\dt" -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tasks' ORDER BY ordinal_position;"
+
+  e2e:
+    name: E2E Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [quality-gate, integration]
+
+    services:
+      localstack:
+        image: localstack/localstack:3.4
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: sqs,s3
+          DEFAULT_REGION: us-east-1
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 20s
+
+      postgres:
+        image: postgres:16-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: traceruntime
+          POSTGRES_USER: traceruntime
+          POSTGRES_PASSWORD: traceruntime
+        options: >-
+          --health-cmd "pg_isready -U traceruntime -d traceruntime"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: |
+            services/api/go.sum
+            services/worker/go.sum
+            services/watchdog/go.sum
+            tests/integration/go.sum
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.0"
+
+      - name: Provision infrastructure
+        run: |
+          terraform -chdir=infra/terraform init -input=false
+          terraform -chdir=infra/terraform apply -auto-approve
+        env:
+          TF_VAR_localstack_endpoint: http://localhost:4566
+
+      - name: Run migrations
+        run: |
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/infra/database/migrations:/migrations:ro \
+            migrate/migrate:v4.18.1 \
+            -path=/migrations \
+            -database="postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable" \
+            up
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API container
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/api
+          load: true
+          tags: traceruntime-api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build Worker container
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/worker
+          load: true
+          tags: traceruntime-worker:latest
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      - name: Build Watchdog container
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/watchdog
+          load: true
+          tags: traceruntime-watchdog:latest
+          cache-from: type=gha,scope=watchdog
+          cache-to: type=gha,mode=max,scope=watchdog
+
+      - name: Build mock AI runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: ./tests/integration/cmd/mock-ai-runtime
+          load: true
+          tags: mock-ai-runtime:latest
+          cache-from: type=gha,scope=mock-ai
+          cache-to: type=gha,mode=max,scope=mock-ai
+
+      - name: Create CI network
+        run: docker network create traceruntime-ci
+
+      - name: Start mock AI runtime
+        run: |
+          docker run -d --name mock-ai-runtime --network traceruntime-ci \
+            -p 8000:8000 \
+            mock-ai-runtime
+
+      - name: Start services
+        env:
+          CI_DB_URL: "postgres://traceruntime:traceruntime@host.docker.internal:5432/traceruntime?sslmode=disable"
+          CI_SQS_ENDPOINT: "http://host.docker.internal:4566"
+          CI_SQS_QUEUE: "http://host.docker.internal:4566/000000000000/traceruntime-tasks"
+          CI_SQS_DLQ: "http://host.docker.internal:4566/000000000000/traceruntime-tasks-dlq"
+          CI_S3_ENDPOINT: "http://host.docker.internal:4566"
+          CI_TOKEN: "ci-e2e-token-minimum-32-characters-long"
+        run: |
+          docker run -d --name api --network traceruntime-ci -p 8082:8082 \
+            -e DATABASE_URL="${CI_DB_URL}" \
+            -e SQS_QUEUE_URL="${CI_SQS_QUEUE}" \
+            -e SQS_ENDPOINT="${CI_SQS_ENDPOINT}" \
+            -e AI_RUNTIME_URL="http://mock-ai-runtime:8000" \
+            -e INTERNAL_TOKEN="${CI_TOKEN}" \
+            -e QUEUE_BACKEND=sqs \
+            -e ALLOWED_ORIGINS="*" \
+            -e AWS_ACCESS_KEY_ID=test \
+            -e AWS_SECRET_ACCESS_KEY=test \
+            -e AWS_DEFAULT_REGION=us-east-1 \
+            --add-host=host.docker.internal:host-gateway \
+            traceruntime-api
+
+          docker run -d --name worker --network traceruntime-ci -p 9091:9091 \
+            -e DATABASE_URL="${CI_DB_URL}" \
+            -e SQS_QUEUE_URL="${CI_SQS_QUEUE}" \
+            -e SQS_DLQ_URL="${CI_SQS_DLQ}" \
+            -e SQS_ENDPOINT="${CI_SQS_ENDPOINT}" \
+            -e S3_ENDPOINT="${CI_S3_ENDPOINT}" \
+            -e S3_BUCKET="traceruntime-outputs" \
+            -e AI_RUNTIME_URL="http://mock-ai-runtime:8000" \
+            -e API_URL="http://api:8082" \
+            -e INTERNAL_TOKEN="${CI_TOKEN}" \
+            -e QUEUE_BACKEND=sqs \
+            -e AWS_ACCESS_KEY_ID=test \
+            -e AWS_SECRET_ACCESS_KEY=test \
+            -e AWS_DEFAULT_REGION=us-east-1 \
+            --add-host=host.docker.internal:host-gateway \
+            traceruntime-worker
+
+          docker run -d --name watchdog --network traceruntime-ci -p 9093:9093 \
+            -e DATABASE_URL="${CI_DB_URL}" \
+            -e SQS_QUEUE_URL="${CI_SQS_QUEUE}" \
+            -e SQS_DLQ_URL="${CI_SQS_DLQ}" \
+            -e SQS_ENDPOINT="${CI_SQS_ENDPOINT}" \
+            -e API_URL="http://api:8082" \
+            -e INTERNAL_TOKEN="${CI_TOKEN}" \
+            -e WORKER_HEALTH_URL="http://worker:9091/health" \
+            -e AWS_ACCESS_KEY_ID=test \
+            -e AWS_SECRET_ACCESS_KEY=test \
+            -e AWS_DEFAULT_REGION=us-east-1 \
+            --add-host=host.docker.internal:host-gateway \
+            traceruntime-watchdog
+
+      - name: Wait for services healthy
+        run: |
+          echo "Waiting for API..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8082/health > /dev/null 2>&1; then
+              echo "API healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://localhost:8082/health || (echo "API not healthy" && docker logs api && exit 1)
+
+          echo "Waiting for Worker..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:9091/health > /dev/null 2>&1; then
+              echo "Worker healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://localhost:9091/health || (echo "Worker not healthy" && docker logs worker && exit 1)
+
+          echo "Waiting for Watchdog..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:9093/health > /dev/null 2>&1; then
+              echo "Watchdog healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://localhost:9093/health || (echo "Watchdog not healthy" && docker logs watchdog && exit 1)
+
+      - name: Run integration tests
+        run: |
+          mkdir -p /tmp/ci-reports
+          cd tests/integration && go test -v -count=1 -timeout=5m -json ./... | tee /tmp/ci-reports/test-results.json
+        env:
+          API_URL: http://localhost:8082
+          DATABASE_URL: postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable
+          SQS_ENDPOINT: http://localhost:4566
+          SQS_QUEUE_URL: http://localhost:4566/000000000000/traceruntime-tasks
+          SQS_DLQ_URL: http://localhost:4566/000000000000/traceruntime-tasks-dlq
+          S3_ENDPOINT: http://localhost:4566
+          INTERNAL_TOKEN: ci-e2e-token-minimum-32-characters-long
+
+      - name: Collect service logs and diagnostics
+        if: always()
+        run: |
+          mkdir -p /tmp/ci-logs
+          docker logs api > /tmp/ci-logs/api.log 2>&1 || true
+          docker logs worker > /tmp/ci-logs/worker.log 2>&1 || true
+          docker logs watchdog > /tmp/ci-logs/watchdog.log 2>&1 || true
+          docker logs mock-ai-runtime > /tmp/ci-logs/mock-ai-runtime.log 2>&1 || true
+          docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" > /tmp/ci-logs/containers.txt 2>&1 || true
+          docker inspect api worker watchdog mock-ai-runtime > /tmp/ci-logs/inspect.json 2>&1 || true
+
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-service-logs
+          path: /tmp/ci-logs/
+          retention-days: 7
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-reports
+          path: /tmp/ci-reports/
+          retention-days: 7

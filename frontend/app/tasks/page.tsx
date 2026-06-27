@@ -99,6 +99,9 @@ export default function TasksPage() {
         event_type: string;
         model?: string;
         inference_duration_ms?: number;
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        tokens_per_second?: number;
         timestamp: string;
       }
     >();
@@ -115,6 +118,9 @@ export default function TasksPage() {
           event_type: ev.event_type,
           model: ev.model,
           inference_duration_ms: ev.inference_duration_ms,
+          prompt_tokens: ev.prompt_tokens,
+          completion_tokens: ev.completion_tokens,
+          tokens_per_second: ev.tokens_per_second,
           timestamp: ev.timestamp,
         });
       }
@@ -194,6 +200,12 @@ export default function TasksPage() {
                 <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
                   Duration
                 </th>
+                <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Tokens
+                </th>
+                <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  tok/s
+                </th>
                 <th className="py-2.5 pl-3 pr-4 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
                   Created At
                 </th>
@@ -222,6 +234,16 @@ export default function TasksPage() {
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {formatDuration(task.inference_duration_ms)}
+                  </td>
+                  <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
+                    {task.prompt_tokens || task.completion_tokens
+                      ? `${(task.prompt_tokens ?? 0) + (task.completion_tokens ?? 0)}`
+                      : "—"}
+                  </td>
+                  <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
+                    {task.tokens_per_second
+                      ? task.tokens_per_second.toFixed(1)
+                      : "—"}
                   </td>
                   <td className="py-2.5 pl-3 pr-4 text-xs text-zinc-500 tabular-nums text-right">
                     {new Date(task.timestamp).toLocaleTimeString()}
