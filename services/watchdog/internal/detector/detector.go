@@ -248,7 +248,7 @@ func (d *Detector) detectStaleWorkers(ctx context.Context) {
 					"last_seen":   hb.LastSeenAt.Format(time.RFC3339),
 					"gap_seconds": int(gap.Seconds()),
 				})
-				d.emit(ctx, key, "worker.stale", "warning", "watchdog", hb.WorkerID, details)
+				d.emit(ctx, key, "worker.stale", "warning", hb.WorkerID, details)
 			}
 		}
 	}
@@ -297,7 +297,7 @@ func (d *Detector) detectWorkerDown(ctx context.Context) {
 		d.evaluateWorkerDown(ctx)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		d.healthFailures++
@@ -344,7 +344,7 @@ func (d *Detector) evaluateWorkerDown(ctx context.Context) {
 		"consecutive_failures": d.healthFailures,
 		"threshold":            d.cfg.HealthcheckFailures,
 	})
-	d.emit(ctx, key, "worker.down", "critical", "watchdog", "", details)
+	d.emit(ctx, key, "worker.down", "critical", "", details)
 	metrics.WorkersDown.Set(1)
 }
 
@@ -368,7 +368,7 @@ func (d *Detector) detectQueueLag(ctx context.Context) {
 				"depth":     depth,
 				"threshold": d.cfg.QueueLagThreshold,
 			})
-			d.emit(ctx, key, "queue.lag", "warning", "watchdog", "", details)
+			d.emit(ctx, key, "queue.lag", "warning", "", details)
 		}
 	} else {
 		d.mu.Lock()
@@ -409,7 +409,7 @@ func (d *Detector) detectStuckTasks(ctx context.Context) {
 				"stuck_seconds":  int(stuckDuration.Seconds()),
 				"started_at":     st.ProcessingStartedAt.Format(time.RFC3339),
 			})
-			d.emit(ctx, key, "task.stuck", "warning", "watchdog", "", details)
+			d.emit(ctx, key, "task.stuck", "warning", "", details)
 		}
 	}
 
@@ -451,7 +451,7 @@ func (d *Detector) detectDLQ(ctx context.Context) {
 			details, _ := json.Marshal(map[string]any{
 				"depth": depth,
 			})
-			d.emit(ctx, key, "dlq.nonempty", "critical", "watchdog", "", details)
+			d.emit(ctx, key, "dlq.nonempty", "critical", "", details)
 		}
 	} else {
 		d.mu.Lock()
@@ -500,7 +500,8 @@ func (d *Detector) getQueueDepth(ctx context.Context, queueURL string) (int, err
 
 // emit creates a new healing event in DB, publishes it to SSE, and registers
 // it in the active dedup map.
-func (d *Detector) emit(ctx context.Context, key, eventType, severity, source, workerID string, details json.RawMessage) {
+func (d *Detector) emit(ctx context.Context, key, eventType, severity, workerID string, details json.RawMessage) {
+	const source = "watchdog"
 	id, err := d.db.InsertHealingEvent(ctx, eventType, severity, source, workerID, details)
 	if err != nil {
 		slog.Error("detector.emit db insert failed",

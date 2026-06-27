@@ -192,7 +192,7 @@ func pollMessages(ctx context.Context, client *sqs.Client, queueURL string, proc
 			}
 			receiveCount := 1
 			if v, ok := msg.Attributes["ApproximateReceiveCount"]; ok {
-				if n, err := strconv.Atoi(string(v)); err == nil {
+				if n, err := strconv.Atoi(v); err == nil {
 					receiveCount = n
 				}
 			}
@@ -232,14 +232,14 @@ func updateDepth(ctx context.Context, client *sqs.Client, url string, setDepth f
 	}
 	if v, ok := out.Attributes["ApproximateNumberOfMessages"]; ok {
 		var n float64
-		if _, err := fmt.Sscanf(string(v), "%f", &n); err == nil {
+		if _, err := fmt.Sscanf(v, "%f", &n); err == nil {
 			setDepth(n)
 		}
 	}
 	if setInflight != nil {
 		if v, ok := out.Attributes["ApproximateNumberOfMessagesNotVisible"]; ok {
 			var n float64
-			if _, err := fmt.Sscanf(string(v), "%f", &n); err == nil {
+			if _, err := fmt.Sscanf(v, "%f", &n); err == nil {
 				setInflight(n)
 			}
 		}

@@ -78,7 +78,7 @@ func (c *Client) Infer(ctx context.Context, req InferRequest) (*InferResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("ai client: request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 500 {
 		return nil, fmt.Errorf("ai client: runtime error: HTTP %d", resp.StatusCode)

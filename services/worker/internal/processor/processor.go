@@ -172,7 +172,7 @@ func (p *Processor) Process(ctx context.Context, body string, traceparentAttr st
 				}
 				// Release message back to SQS immediately for retry instead of
 				// waiting for the full visibility timeout (360s) to expire.
-				p.sqs.ChangeMessageVisibility(processCtx, &sqssdk.ChangeMessageVisibilityInput{
+				_, _ = p.sqs.ChangeMessageVisibility(processCtx, &sqssdk.ChangeMessageVisibilityInput{
 					QueueUrl:          aws.String(p.cfg.SQSURL),
 					ReceiptHandle:     aws.String(receiptHandle),
 					VisibilityTimeout: 30,
@@ -308,7 +308,7 @@ func (p *Processor) callAIRuntime(ctx context.Context, msg sqsMessage, tracepare
 	if err != nil {
 		return inferResult{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 500 {
 		return inferResult{}, fmt.Errorf("ai runtime HTTP %d", resp.StatusCode)
@@ -374,7 +374,7 @@ func (p *Processor) publishSSE(ev sseEvent) {
 		metrics.SSEPublishErrors.Inc()
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 400 {

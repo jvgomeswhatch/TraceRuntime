@@ -58,7 +58,7 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			slog.Info("sse client disconnected", "client_id", clientID)
 			return
 		case msg := <-ch:
-			fmt.Fprintf(w, "data: %s\n\n", msg)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
 			flusher.Flush()
 		}
 	}
