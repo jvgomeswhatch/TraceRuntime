@@ -357,20 +357,19 @@ jobs:
       - name: Start services
         env:
           CI_DB_URL: "postgres://traceruntime:traceruntime@host.docker.internal:5432/traceruntime?sslmode=disable"
-          CI_SQS_ENDPOINT: "http://host.docker.internal:4566"
+          CI_AWS_ENDPOINT: "http://host.docker.internal:4566"
           CI_SQS_QUEUE: "http://host.docker.internal:4566/000000000000/traceruntime-tasks"
           CI_SQS_DLQ: "http://host.docker.internal:4566/000000000000/traceruntime-tasks-dlq"
-          CI_S3_ENDPOINT: "http://host.docker.internal:4566"
           CI_TOKEN: "ci-e2e-token-minimum-32-characters-long"
         run: |
           docker run -d --name api --network traceruntime-ci -p 8082:8082 \
             -e DATABASE_URL="${CI_DB_URL}" \
             -e SQS_QUEUE_URL="${CI_SQS_QUEUE}" \
-            -e SQS_ENDPOINT="${CI_SQS_ENDPOINT}" \
             -e AI_RUNTIME_URL="http://mock-ai-runtime:8000" \
             -e INTERNAL_TOKEN="${CI_TOKEN}" \
             -e QUEUE_BACKEND=sqs \
             -e ALLOWED_ORIGINS="*" \
+            -e AWS_ENDPOINT_URL="${CI_AWS_ENDPOINT}" \
             -e AWS_ACCESS_KEY_ID=test \
             -e AWS_SECRET_ACCESS_KEY=test \
             -e AWS_DEFAULT_REGION=us-east-1 \
@@ -381,13 +380,12 @@ jobs:
             -e DATABASE_URL="${CI_DB_URL}" \
             -e SQS_QUEUE_URL="${CI_SQS_QUEUE}" \
             -e SQS_DLQ_URL="${CI_SQS_DLQ}" \
-            -e SQS_ENDPOINT="${CI_SQS_ENDPOINT}" \
-            -e S3_ENDPOINT="${CI_S3_ENDPOINT}" \
             -e S3_BUCKET="traceruntime-outputs" \
             -e AI_RUNTIME_URL="http://mock-ai-runtime:8000" \
-            -e API_URL="http://api:8082" \
+            -e API_INTERNAL_URL="http://api:8082" \
             -e INTERNAL_TOKEN="${CI_TOKEN}" \
             -e QUEUE_BACKEND=sqs \
+            -e AWS_ENDPOINT_URL="${CI_AWS_ENDPOINT}" \
             -e AWS_ACCESS_KEY_ID=test \
             -e AWS_SECRET_ACCESS_KEY=test \
             -e AWS_DEFAULT_REGION=us-east-1 \
@@ -398,10 +396,10 @@ jobs:
             -e DATABASE_URL="${CI_DB_URL}" \
             -e SQS_QUEUE_URL="${CI_SQS_QUEUE}" \
             -e SQS_DLQ_URL="${CI_SQS_DLQ}" \
-            -e SQS_ENDPOINT="${CI_SQS_ENDPOINT}" \
-            -e API_URL="http://api:8082" \
+            -e API_EVENTS_URL="http://api:8082/internal/events" \
             -e INTERNAL_TOKEN="${CI_TOKEN}" \
             -e WORKER_HEALTH_URL="http://worker:9091/health" \
+            -e AWS_ENDPOINT_URL="${CI_AWS_ENDPOINT}" \
             -e AWS_ACCESS_KEY_ID=test \
             -e AWS_SECRET_ACCESS_KEY=test \
             -e AWS_DEFAULT_REGION=us-east-1 \
