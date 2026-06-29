@@ -145,7 +145,11 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	taskID := uuid.New().String()
 
 	if h.db != nil {
-		if err := h.db.InsertTask(ctx, taskID, traceID); err != nil {
+		if err := h.db.InsertTask(ctx, db.CreateTaskParams{
+			ID:           taskID,
+			TraceID:      traceID,
+			InputPayload: req.Input,
+		}); err != nil {
 			telemetry.Error(ctx, "failed to insert task", "task_id", taskID, "error", err)
 			jsonError(w, "internal error", http.StatusInternalServerError)
 			return

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ListTodo,
   CheckCircle2,
@@ -11,10 +11,15 @@ import {
   Copy,
   Check,
   Search,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useSSEContext } from "@/components/providers/sse-provider";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8082";
+const TOKEN = process.env.NEXT_PUBLIC_INTERNAL_TOKEN || "";
 
 function statusIcon(eventType: string) {
   if (eventType.includes("completed"))
@@ -86,9 +91,88 @@ function CopyCell({ text }: { text: string }) {
   );
 }
 
+function ReplayModal({
+  taskId,
+  onClose,
+}: {
+  taskId: string;
+  onClose: () => void;
+}) {
+  const [payload, setPayload] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleReplay = useCallback(async () => {
+    setError(null);
+    try {
+      const body = payload.trim()
+        ? JSON.stringify({ override_payload: payload.trim() })
+        : undefined;
+      const res = await fetch(`${API_URL}/api/tasks/${taskId}/replay`, {
+        method: "POST",
+        headers: {
+          ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        body,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "request failed" }));
+        setError(data.error || `status ${res.status}`);
+        return;
+      }
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "network error");
+    }
+  }, [taskId, payload, onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-full max-w-md rounded-xl border border-zinc-800/80 bg-zinc-900 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-zinc-100">Replay Task</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+            <X className="size-4" />
+          </button>
+        </div>
+        <p className="text-xs text-zinc-500 mb-3">
+          Replaying <span className="font-mono text-zinc-400 break-all">{taskId}</span>
+        </p>
+        <label className="block text-[10px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">
+          Override payload (optional)
+        </label>
+        <textarea
+          value={payload}
+          onChange={(e) => setPayload(e.target.value)}
+          placeholder="Leave empty to use original input"
+          className="w-full h-24 rounded-lg border border-zinc-800/80 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-700 resize-none"
+        />
+        {error && (
+          <p className="text-xs text-red-400 mt-2">{error}</p>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 bg-zinc-900/60 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleReplay}
+            className="text-xs font-medium text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            Replay
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TasksPage() {
   const { events } = useSSEContext();
   const [filter, setFilter] = useState("");
+  const [replayTarget, setReplayTarget] = useState<string | null>(null);
 
   const latestByTask = useMemo(() => {
     const map = new Map<
@@ -213,8 +297,11 @@ export default function TasksPage() {
                 <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
                   tok/s
                 </th>
-                <th className="py-2.5 pl-3 pr-4 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
                   Created At
+                </th>
+                <th className="py-2.5 pl-3 pr-4 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Action
                 </th>
               </tr>
             </thead>
@@ -252,14 +339,33 @@ export default function TasksPage() {
                       ? task.tokens_per_second.toFixed(1)
                       : "—"}
                   </td>
-                  <td className="py-2.5 pl-3 pr-4 text-xs text-zinc-500 tabular-nums text-right">
+                  <td className="py-2.5 px-3 text-xs text-zinc-500 tabular-nums text-right">
                     {new Date(task.timestamp).toLocaleTimeString()}
+                  </td>
+                  <td className="py-2.5 pl-3 pr-4 text-right">
+                    {(task.event_type.includes("completed") ||
+                      task.event_type.includes("failed")) && (
+                      <button
+                        onClick={() => setReplayTarget(task.task_id)}
+                        className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-400 hover:text-violet-300 border border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 rounded px-2 py-0.5 transition-colors"
+                      >
+                        <RotateCcw className="size-2.5" />
+                        Replay
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {replayTarget && (
+        <ReplayModal
+          taskId={replayTarget}
+          onClose={() => setReplayTarget(null)}
+        />
       )}
     </div>
   );

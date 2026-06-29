@@ -36,16 +36,23 @@ func (d *DB) SetFailed(ctx context.Context, id, reason string) error {
 	return nil
 }
 
-func (d *DB) InsertTask(ctx context.Context, id, traceID string) error {
+type CreateTaskParams struct {
+	ID               string
+	TraceID          string
+	InputPayload     string
+	InputArtifactKey *string
+	ReplayOf         *string
+}
+
+func (d *DB) InsertTask(ctx context.Context, params CreateTaskParams) error {
 	now := time.Now().UTC()
-	// $1::uuid: pgx sends Go strings as pg text; explicit cast required for UUID columns.
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO tasks (id, trace_id, status, created_at, updated_at)
-		 VALUES ($1::uuid, $2, 'pending', $3, $3)`,
-		id, traceID, now,
+		`INSERT INTO tasks (id, trace_id, status, created_at, updated_at, input_payload, input_artifact_key, replay_of)
+		 VALUES ($1::uuid, $2, 'pending', $3, $3, $4, $5, $6)`,
+		params.ID, params.TraceID, now, params.InputPayload, params.InputArtifactKey, params.ReplayOf,
 	)
 	if err != nil {
-		return fmt.Errorf("db.InsertTask %s: %w", id, err)
+		return fmt.Errorf("db.InsertTask %s: %w", params.ID, err)
 	}
 	return nil
 }
