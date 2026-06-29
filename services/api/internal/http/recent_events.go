@@ -12,18 +12,21 @@ import (
 
 // recentEvent matches the SSE event shape the frontend expects.
 type recentEvent struct {
-	EventID          string  `json:"event_id"`
-	EventType        string  `json:"event_type"`
-	TaskID           string  `json:"task_id"`
-	TraceID          string  `json:"trace_id"`
-	Traceparent      string  `json:"traceparent"`
-	Timestamp        string  `json:"timestamp"`
-	Source           string  `json:"source"`
-	ErrorReason      string  `json:"error_reason,omitempty"`
-	PromptTokens     int     `json:"prompt_tokens,omitempty"`
-	CompletionTokens int     `json:"completion_tokens,omitempty"`
-	TokensPerSecond  float64 `json:"tokens_per_second,omitempty"`
-	Model            string  `json:"model,omitempty"`
+	EventID             string  `json:"event_id"`
+	EventType           string  `json:"event_type"`
+	TaskID              string  `json:"task_id"`
+	TraceID             string  `json:"trace_id"`
+	Traceparent         string  `json:"traceparent"`
+	Timestamp           string  `json:"timestamp"`
+	Source              string  `json:"source"`
+	ErrorReason         string  `json:"error_reason,omitempty"`
+	PromptTokens        int     `json:"prompt_tokens,omitempty"`
+	CompletionTokens    int     `json:"completion_tokens,omitempty"`
+	TokensPerSecond     float64 `json:"tokens_per_second,omitempty"`
+	Model               string  `json:"model,omitempty"`
+	CreatedAt           string  `json:"created_at"`
+	ProcessingStartedAt string  `json:"processing_started_at,omitempty"`
+	CompletedAt         string  `json:"completed_at,omitempty"`
 }
 
 // RecentEventsHandler returns historical task events from PostgreSQL so the
@@ -84,6 +87,13 @@ func (h *RecentEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		ev.CompletionTokens = t.CompletionTokens
 		ev.TokensPerSecond = t.TokensPerSecond
 		ev.Model = t.Model
+		ev.CreatedAt = t.CreatedAt.UTC().Format(time.RFC3339)
+		if t.ProcessingStartedAt != nil {
+			ev.ProcessingStartedAt = t.ProcessingStartedAt.UTC().Format(time.RFC3339)
+		}
+		if t.CompletedAt != nil {
+			ev.CompletedAt = t.CompletedAt.UTC().Format(time.RFC3339)
+		}
 		events = append(events, ev)
 	}
 

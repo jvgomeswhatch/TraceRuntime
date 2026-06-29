@@ -86,21 +86,21 @@ export const KpiCards = React.memo(function KpiCards() {
     const avgLatency = metrics ? metrics.avg_latency_ms / 1000 : 0;
     const errorRate = metrics?.error_rate ?? 0;
     const queueDepth = metrics?.queue_depth ?? 0;
-    const totalFinished = metrics ? metrics.completed + metrics.failed : 0;
+    const totalAll = metrics ? (metrics.total_completed ?? 0) + (metrics.total_failed ?? 0) : 0;
 
     return [
       {
         id: "tasks-processed",
         label: "Tasks Processed",
-        value: metrics ? String(totalFinished) : "—",
+        value: metrics ? String(totalAll) : "—",
         unit: "",
-        trend: totalFinished > 0 ? "up" : "flat",
+        trend: totalAll > 0 ? "up" : "flat",
         trendLabel: metrics
-          ? `${metrics.completed} completed · ${metrics.failed} failed`
+          ? `${metrics.total_completed ?? 0} completed · ${metrics.total_failed ?? 0} failed`
           : "no data",
         sparkData: throughputSpark,
         color: "#34d399",
-        trendColor: totalFinished > 0 ? "text-emerald-400" : "text-zinc-500",
+        trendColor: totalAll > 0 ? "text-emerald-400" : "text-zinc-500",
         icon: <CheckCircle2 className="size-3.5" />,
       },
       {

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   GitBranch,
   Inbox,
@@ -10,12 +12,6 @@ import {
   Loader2,
   Zap,
   ChevronRight,
-  ArrowLeft,
-  Server,
-  Cpu,
-  BrainCircuit,
-  Database,
-  Radio,
   Copy,
   Check,
 } from "lucide-react";
@@ -51,126 +47,6 @@ function traceStatusColor(status: string): string {
   if (status.includes("processing"))
     return "text-blue-400 border-blue-500/40 bg-blue-500/10";
   return "text-violet-400 border-violet-500/40 bg-violet-500/10";
-}
-
-const PIPELINE_STAGES = [
-  {
-    key: "api",
-    label: "API Request",
-    icon: Server,
-    description: "HTTP POST → Task created",
-  },
-  {
-    key: "sqs",
-    label: "SQS Queue",
-    icon: Inbox,
-    description: "Message enqueued for processing",
-  },
-  {
-    key: "worker",
-    label: "Worker",
-    icon: Cpu,
-    description: "Task dequeued and processing started",
-  },
-  {
-    key: "ai-runtime",
-    label: "AI Runtime",
-    icon: BrainCircuit,
-    description: "Inference via Ollama",
-  },
-  {
-    key: "storage",
-    label: "S3 + PostgreSQL",
-    icon: Database,
-    description: "Output persisted",
-  },
-  {
-    key: "sse",
-    label: "SSE Broadcast",
-    icon: Radio,
-    description: "Event streamed to frontend",
-  },
-] as const;
-
-function deriveStageStatus(
-  events: SSEEvent[]
-): Map<string, "completed" | "active" | "pending" | "failed"> {
-  const statuses = new Map<
-    string,
-    "completed" | "active" | "pending" | "failed"
-  >();
-
-  const hasCreated = events.some((e) => e.event_type.includes("created"));
-  const hasProcessing = events.some((e) =>
-    e.event_type.includes("processing")
-  );
-  const hasCompleted = events.some((e) =>
-    e.event_type.includes("completed")
-  );
-  const hasFailed = events.some((e) => e.event_type.includes("failed"));
-
-  if (hasCompleted) {
-    for (const stage of PIPELINE_STAGES) {
-      statuses.set(stage.key, "completed");
-    }
-  } else if (hasFailed) {
-    statuses.set("api", "completed");
-    statuses.set("sqs", "completed");
-    statuses.set("worker", "completed");
-    statuses.set("ai-runtime", "failed");
-    statuses.set("storage", "pending");
-    statuses.set("sse", "completed");
-  } else if (hasProcessing) {
-    statuses.set("api", "completed");
-    statuses.set("sqs", "completed");
-    statuses.set("worker", "completed");
-    statuses.set("ai-runtime", "active");
-    statuses.set("storage", "pending");
-    statuses.set("sse", "completed");
-  } else if (hasCreated) {
-    statuses.set("api", "completed");
-    statuses.set("sqs", "active");
-    statuses.set("worker", "pending");
-    statuses.set("ai-runtime", "pending");
-    statuses.set("storage", "pending");
-    statuses.set("sse", "completed");
-  } else {
-    for (const stage of PIPELINE_STAGES) {
-      statuses.set(stage.key, "pending");
-    }
-  }
-
-  return statuses;
-}
-
-function stageNodeColor(
-  status: "completed" | "active" | "pending" | "failed"
-): string {
-  switch (status) {
-    case "completed":
-      return "bg-emerald-500 border-emerald-400";
-    case "active":
-      return "bg-blue-500 border-blue-400 animate-pulse";
-    case "failed":
-      return "bg-red-500 border-red-400";
-    case "pending":
-      return "bg-zinc-700 border-zinc-600";
-  }
-}
-
-function stageLineColor(
-  status: "completed" | "active" | "pending" | "failed"
-): string {
-  switch (status) {
-    case "completed":
-      return "bg-emerald-500/40";
-    case "active":
-      return "bg-blue-500/40";
-    case "failed":
-      return "bg-red-500/40";
-    case "pending":
-      return "bg-zinc-700/40";
-  }
 }
 
 function CopyableId({ id }: { id: string }) {
@@ -209,163 +85,10 @@ function CopyableId({ id }: { id: string }) {
   );
 }
 
-function TraceDetail({
-  trace,
-  onBack,
-}: {
-  trace: TraceGroup;
-  onBack: () => void;
-}) {
-  const stageStatuses = deriveStageStatus(trace.events);
-
-  const createdEvent = trace.events.find((e) =>
-    e.event_type.includes("created")
-  );
-  const completedEvent = trace.events.find((e) =>
-    e.event_type.includes("completed")
-  );
-
-  const totalMs =
-    createdEvent && completedEvent
-      ? new Date(completedEvent.timestamp).getTime() -
-        new Date(createdEvent.timestamp).getTime()
-      : null;
-
-  return (
-    <div>
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors mb-5"
-      >
-        <ArrowLeft className="size-3.5" />
-        Back to traces
-      </button>
-
-      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 mb-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1">
-              Trace ID
-            </p>
-            <p className="text-sm font-mono text-zinc-200">
-              {trace.trace_id}
-            </p>
-          </div>
-          <div className="text-right">
-            <Badge
-              variant="outline"
-              className={`${traceStatusColor(trace.latestStatus)} text-[10px] uppercase font-semibold px-1.5 py-0 inline-flex items-center gap-1`}
-            >
-              {traceStatusIcon(trace.latestStatus)}
-              {trace.latestStatus.replace("task.", "")}
-            </Badge>
-            {totalMs !== null && (
-              <p className="text-xs text-zinc-400 mt-1 tabular-nums">
-                {totalMs < 1000
-                  ? `${totalMs}ms`
-                  : `${(totalMs / 1000).toFixed(2)}s`}{" "}
-                total
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3 text-xs">
-          <div>
-            <span className="text-zinc-500">Model</span>
-            <p className="text-zinc-300 font-mono mt-0.5">
-              {trace.model ?? "—"}
-            </p>
-          </div>
-          <div>
-            <span className="text-zinc-500">Started</span>
-            <p className="text-zinc-300 mt-0.5">
-              {new Date(trace.startTime).toLocaleTimeString()}
-            </p>
-          </div>
-          <div>
-            <span className="text-zinc-500">Events</span>
-            <p className="text-zinc-300 mt-0.5">{trace.events.length}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Pipeline Visualization */}
-      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5">
-        <h3 className="text-xs font-medium text-zinc-400 mb-5 uppercase tracking-wide">
-          Pipeline Flow
-        </h3>
-        <div className="space-y-0">
-          {PIPELINE_STAGES.map((stage, idx) => {
-            const status = stageStatuses.get(stage.key) ?? "pending";
-            const isLast = idx === PIPELINE_STAGES.length - 1;
-            const Icon = stage.icon;
-
-            return (
-              <div key={stage.key} className="flex items-stretch gap-4">
-                {/* Vertical line + node */}
-                <div className="flex flex-col items-center w-6 shrink-0">
-                  <div
-                    className={`size-3 rounded-full border-2 ${stageNodeColor(status)} z-10`}
-                  />
-                  {!isLast && (
-                    <div
-                      className={`w-0.5 flex-1 ${stageLineColor(status)}`}
-                    />
-                  )}
-                </div>
-
-                {/* Stage info */}
-                <div className="pb-5 flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Icon
-                      className={`size-3.5 ${
-                        status === "completed"
-                          ? "text-emerald-400"
-                          : status === "active"
-                            ? "text-blue-400"
-                            : status === "failed"
-                              ? "text-red-400"
-                              : "text-zinc-500"
-                      }`}
-                    />
-                    <span
-                      className={`text-xs font-medium ${
-                        status === "pending"
-                          ? "text-zinc-500"
-                          : "text-zinc-200"
-                      }`}
-                    >
-                      {stage.label}
-                    </span>
-                    {status === "active" && (
-                      <span className="text-[10px] text-blue-400">
-                        in progress
-                      </span>
-                    )}
-                    {status === "failed" && (
-                      <span className="text-[10px] text-red-400">
-                        failed
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-zinc-500 mt-0.5 ml-5">
-                    {stage.description}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function TracesPage() {
   const { events } = useSSEContext();
+  const router = useRouter();
   const [filter, setFilter] = useState("");
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
 
   const traceGroups = useMemo<TraceGroup[]>(() => {
     const map = new Map<string, SSEEvent[]>();
@@ -391,11 +114,16 @@ export default function TracesPage() {
         const createdEv = sorted.find((e) =>
           e.event_type.includes("created")
         );
+
+        const evWithTimestamps = sorted.find((e) => e.processing_started_at && e.completed_at);
         const totalDuration =
-          createdEv && completedEv
-            ? new Date(completedEv.timestamp).getTime() -
-              new Date(createdEv.timestamp).getTime()
-            : null;
+          evWithTimestamps?.processing_started_at && evWithTimestamps?.completed_at
+            ? new Date(evWithTimestamps.completed_at).getTime() -
+              new Date(evWithTimestamps.processing_started_at).getTime()
+            : createdEv && completedEv
+              ? new Date(completedEv.timestamp).getTime() -
+                new Date(createdEv.timestamp).getTime()
+              : null;
 
         return {
           trace_id,
@@ -424,10 +152,6 @@ export default function TracesPage() {
     );
   }, [traceGroups, filter]);
 
-  const selectedTrace = selectedTraceId
-    ? traceGroups.find((t) => t.trace_id === selectedTraceId) ?? null
-    : null;
-
   return (
     <div className="px-6 py-5 lg:px-8">
       <header className="mb-5 flex items-center justify-between">
@@ -445,106 +169,102 @@ export default function TracesPage() {
         </div>
       </header>
 
-      {selectedTrace ? (
-        <TraceDetail
-          trace={selectedTrace}
-          onBack={() => setSelectedTraceId(null)}
+      {/* Search */}
+      <div className="mb-4 relative max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-500" />
+        <Input
+          type="text"
+          placeholder="Filter by trace ID, model, status..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="pl-8 bg-zinc-900/60 border-zinc-800/80 text-zinc-100 placeholder:text-zinc-500 text-xs h-8"
         />
-      ) : (
-        <>
-          {/* Search */}
-          <div className="mb-4 relative max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-500" />
-            <Input
-              type="text"
-              placeholder="Filter by trace ID, model, status..."
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="pl-8 bg-zinc-900/60 border-zinc-800/80 text-zinc-100 placeholder:text-zinc-500 text-xs h-8"
-            />
-          </div>
+      </div>
 
-          {/* Trace List */}
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
-              <Inbox className="size-8 text-zinc-600 mb-3" />
-              <p className="text-sm">
-                {events.length === 0
-                  ? "No traces yet. Submit a task from the Overview."
-                  : "No traces match your filter."}
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-zinc-800/60">
-                    <th className="py-2.5 pl-4 pr-3 text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
-                      Trace ID
-                    </th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
-                      Status
-                    </th>
-                    <th className="py-2.5 px-3 text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
-                      Model
-                    </th>
-                    <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
-                      Duration
-                    </th>
-                    <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
-                      Spans
-                    </th>
-                    <th className="py-2.5 pl-3 pr-4 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
-                      Time
-                    </th>
-                    <th className="py-2.5 pr-4 w-8" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((trace) => (
-                    <tr
-                      key={trace.trace_id}
-                      onClick={() => setSelectedTraceId(trace.trace_id)}
-                      className="border-b border-zinc-800/40 last:border-b-0 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+      {/* Trace List */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
+          <Inbox className="size-8 text-zinc-600 mb-3" />
+          <p className="text-sm">
+            {events.length === 0
+              ? "No traces yet. Submit a task from the Overview."
+              : "No traces match your filter."}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-zinc-800/60">
+                <th className="py-2.5 pl-4 pr-3 text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Trace ID
+                </th>
+                <th className="py-2.5 px-3 text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Status
+                </th>
+                <th className="py-2.5 px-3 text-left text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Model
+                </th>
+                <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Duration
+                </th>
+                <th className="py-2.5 px-3 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Spans
+                </th>
+                <th className="py-2.5 pl-3 pr-4 text-right text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Time
+                </th>
+                <th className="py-2.5 pr-4 w-8" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((trace) => (
+                <tr
+                  key={trace.trace_id}
+                  onClick={() => router.push(`/traces/${trace.trace_id}`)}
+                  className="border-b border-zinc-800/40 last:border-b-0 hover:bg-zinc-800/30 transition-colors cursor-pointer group"
+                >
+                  <td className="py-2.5 pl-4 pr-3">
+                    <CopyableId id={trace.trace_id} />
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <Badge
+                      variant="outline"
+                      className={`${traceStatusColor(trace.latestStatus)} text-[10px] uppercase font-semibold px-1.5 py-0 inline-flex items-center gap-1`}
                     >
-                      <td className="py-2.5 pl-4 pr-3">
-                        <CopyableId id={trace.trace_id} />
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <Badge
-                          variant="outline"
-                          className={`${traceStatusColor(trace.latestStatus)} text-[10px] uppercase font-semibold px-1.5 py-0 inline-flex items-center gap-1`}
-                        >
-                          {traceStatusIcon(trace.latestStatus)}
-                          {trace.latestStatus.replace("task.", "")}
-                        </Badge>
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-zinc-400 font-mono">
-                        {trace.model ?? "—"}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
-                        {trace.totalDuration !== null
-                          ? trace.totalDuration < 1000
-                            ? `${trace.totalDuration}ms`
-                            : `${(trace.totalDuration / 1000).toFixed(2)}s`
-                          : "—"}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-zinc-500 tabular-nums text-right">
-                        {trace.events.length}
-                      </td>
-                      <td className="py-2.5 pl-3 pr-4 text-xs text-zinc-500 tabular-nums text-right">
-                        {new Date(trace.startTime).toLocaleTimeString()}
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <ChevronRight className="size-3.5 text-zinc-600" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+                      {traceStatusIcon(trace.latestStatus)}
+                      {trace.latestStatus.replace("task.", "")}
+                    </Badge>
+                  </td>
+                  <td className="py-2.5 px-3 text-xs text-zinc-400 font-mono">
+                    {trace.model ?? "—"}
+                  </td>
+                  <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
+                    {trace.totalDuration !== null
+                      ? trace.totalDuration < 1000
+                        ? `${trace.totalDuration}ms`
+                        : `${(trace.totalDuration / 1000).toFixed(2)}s`
+                      : "—"}
+                  </td>
+                  <td className="py-2.5 px-3 text-xs text-zinc-500 tabular-nums text-right">
+                    {trace.events.length}
+                  </td>
+                  <td className="py-2.5 pl-3 pr-4 text-xs text-zinc-500 tabular-nums text-right">
+                    {new Date(trace.startTime).toLocaleTimeString()}
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <Link
+                      href={`/traces/${trace.trace_id}`}
+                      className="inline-flex items-center text-zinc-600 group-hover:text-zinc-400 transition-colors"
+                    >
+                      <ChevronRight className="size-3.5" />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

@@ -98,7 +98,7 @@ export default function TasksPage() {
         trace_id: string;
         event_type: string;
         model?: string;
-        inference_duration_ms?: number;
+        duration_ms: number | null;
         prompt_tokens?: number;
         completion_tokens?: number;
         tokens_per_second?: number;
@@ -112,12 +112,19 @@ export default function TasksPage() {
         !existing ||
         new Date(ev.timestamp).getTime() > new Date(existing.timestamp).getTime()
       ) {
+        let durationMs: number | null = ev.inference_duration_ms ?? null;
+        if (!durationMs && ev.processing_started_at && ev.completed_at) {
+          durationMs =
+            new Date(ev.completed_at).getTime() -
+            new Date(ev.processing_started_at).getTime();
+        }
+
         map.set(ev.task_id, {
           task_id: ev.task_id,
           trace_id: ev.trace_id,
           event_type: ev.event_type,
           model: ev.model,
-          inference_duration_ms: ev.inference_duration_ms,
+          duration_ms: durationMs,
           prompt_tokens: ev.prompt_tokens,
           completion_tokens: ev.completion_tokens,
           tokens_per_second: ev.tokens_per_second,
@@ -233,7 +240,7 @@ export default function TasksPage() {
                     {task.model ?? "—"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
-                    {formatDuration(task.inference_duration_ms)}
+                    {formatDuration(task.duration_ms ?? undefined)}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {task.prompt_tokens || task.completion_tokens

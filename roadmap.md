@@ -459,53 +459,70 @@ Previously, `make up` always ran `--build`, causing unnecessary rebuilds on ever
 
 ---
 
-# Phase 10 — Multi-Provider LLM (Plug-and-Play)
+# Phase 10 — Operational Investigation
 
 Prerequisite: Phase 9 complete — local pipeline fully validated and resilient.
 
-Transform the AI Runtime into a plug-and-play layer that accepts any LLM provider:
+Transform the dashboard from a metrics viewer into an investigation tool. Every feature must be testable in CI (integration or E2E).
 
-Providers:
+Specs:
+- [Baseline & Riscos](docs/specs/phase-10-baseline-and-risks.md)
+- [Features](docs/specs/phase-10-features.md)
 
-- Ollama local (already implemented, default)
-- Groq (free tier: 30 req/min, Llama/Mixtral)
-- Google Gemini (free tier: 15 req/min, Gemini Flash)
-- OpenRouter (aggregator, multiple free models)
-- OpenAI (paid, GPT-4o)
-- Anthropic (paid, Claude)
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Trace Details | ✅ | Waterfall timeline showing latency per stage (API → SQS → Worker → AI → S3) |
+| Request Inspector | | Request/response detail: trace context, payload, artifact, duration |
+| Runtime Topology | | Live architecture map with real metrics: status, requests, latency, throughput per component |
+| Worker Details | | Worker page: heartbeat, uptime, current task, tasks processed, avg latency |
 
-Configuration via environment variables:
+### Feature 1 — Trace Details ✅
 
-```
-AI_PROVIDER=ollama|groq|gemini|openrouter|openai|anthropic
-AI_MODEL=qwen2:7b|llama-3-8b|gemini-flash|gpt-4o|claude-sonnet
-AI_API_KEY=...              # only for cloud providers
-AI_BASE_URL=...             # optional override
-```
+Delivered:
 
-Implementation:
+- `GET /api/traces/{traceID}` — fetches task from PostgreSQL + spans from Tempo, with graceful degradation (Tempo down → `spans: null`, `tempo_available: false`)
+- Tempo client (`services/api/internal/tempo/`) with 5s timeout, `Accept: application/json`, hex traceID validation
+- `GetTaskByTraceID` DB query using existing `idx_tasks_trace_id` index
+- Frontend `/traces/[traceId]` page with span waterfall (grid-aligned), KPI cards, task details with mini-cards
+- Span click-to-select with emerald border indicator and detail panel
+- Duration fallback: spans → DB timestamps (`processing_started_at` → `completed_at`) when Tempo data expired
+- Real-time polling (5s) for in-progress tasks, auto-stops on terminal status
+- Duration persisted in Tasks and Traces pages via `processing_started_at`/`completed_at` from `/api/events/recent`
+- Error boundary (`error.tsx`) for route-level errors
+- Google Fonts replaced with `next/font/local` (eliminates network dependency in Docker build)
+- Tasks Processed KPI changed from 5-min sliding window to all-time total (`total_completed` + `total_failed`)
 
-- Provider adapter interface in AI Runtime (Python)
-- One adapter file per provider (~50 lines each)
-- Same response contract: output, model, inference_duration_ms
-- trace_id propagation works identically across all providers
+Technical debt:
 
-What does NOT change:
+- **LLM output not visible after page reload** — output stored in S3 (`artifact_key`) but no endpoint to fetch it. SSE carries output in-memory during session only. Needs: API endpoint to retrieve S3 artifact by task ID + UI to display response text.
 
-- SQS, PostgreSQL, S3, traces, metrics, dashboard — everything stays the same
-- The only thing that changes is where the inference response comes from
+---
 
-Validation:
+# Phase 11 — Operational Control
 
-- Same task, different providers → compare latency, output, cost in Grafana
-- Dashboard shows model name and provider per task
-- Traces show inference duration per provider
+Prerequisite: Phase 10 complete — investigation capabilities validated.
 
-Goal:
+Add operational actions: alerting, recovery, replay, chaos. Every feature must be testable in CI.
 
-- anyone who clones the project can plug their own LLM (local or cloud) without changing infrastructure
-- observable comparison between providers using the same operational pipeline
-- zero cost to test with Groq/Gemini free tiers
+| Feature | Description |
+|---------|-------------|
+| Alert Center | Alert list with status/history/filters, replaces healing event counter |
+| Replay Task | Re-execute tasks from original payload or S3 artifact |
+| DLQ Explorer | Inspect, retry, or delete dead letter queue messages |
+| Chaos Dashboard | Frontend for chaos scenarios: kill worker, pause runtime, flood queue |
+
+---
+
+# Definition of Done (Project Complete)
+
+The project is complete when Phases 10 + 11 are done and it demonstrates:
+
+- **Investigation** — trace details, topology, worker inspection, request inspector
+- **Operations** — alert center, DLQ explorer, replay, chaos
+- **All visible in the frontend** — no CLI required
+- **All testable in CI** — integration/E2E tests for every feature
+
+At this point the project stops being a metrics dashboard and becomes a complete operational platform for a distributed runtime.
 
 ---
 

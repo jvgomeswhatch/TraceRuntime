@@ -15,6 +15,9 @@ export interface SSEEvent {
   prompt_tokens?: number;
   completion_tokens?: number;
   tokens_per_second?: number;
+  created_at?: string;
+  processing_started_at?: string;
+  completed_at?: string;
 }
 
 export interface CreateTaskResponse {
@@ -70,6 +73,8 @@ export interface RuntimeMetrics {
   error_rate: number;
   completed: number;
   failed: number;
+  total_completed: number;
+  total_failed: number;
   queue_depth: number;
 }
 
@@ -79,6 +84,38 @@ export interface CapacityLatencyBucket {
   p99: number;
   min: number;
   max: number;
+}
+
+export interface TraceSpan {
+  span_id: string;
+  parent_span_id: string;
+  operation_name: string;
+  service_name: string;
+  start_time_unix_nano: number;
+  duration_nano: number;
+  status: "ok" | "error" | "unset";
+  attributes?: Record<string, string>;
+}
+
+export interface TraceDetailResponse {
+  trace_id: string;
+  task: {
+    id: string;
+    trace_id: string;
+    status: string;
+    created_at: string;
+    processing_started_at?: string;
+    completed_at?: string;
+    artifact_key?: string;
+    error_message?: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    tokens_per_second: number;
+    model?: string;
+  } | null;
+  spans: TraceSpan[];
+  services: string[];
+  tempo_available: boolean;
 }
 
 export interface CapacityReport {

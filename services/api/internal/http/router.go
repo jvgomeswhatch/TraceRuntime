@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"os"
 	"slices"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,7 @@ import (
 	"github.com/runtime-platform/services/api/internal/db"
 	"github.com/runtime-platform/services/api/internal/event"
 	"github.com/runtime-platform/services/api/internal/queue"
+	"github.com/runtime-platform/services/api/internal/tempo"
 )
 
 func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, database *db.DB, resultsDir string, allowedOrigins []string, internalToken string, sqsClient *sqssdk.Client, sqsQueueURL string) http.Handler {
@@ -32,12 +34,19 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	tempoURL := os.Getenv("TEMPO_URL")
+	var tempoClient *tempo.Client
+	if tempoURL != "" {
+		tempoClient = tempo.New(tempoURL)
+	}
+
 	tokenMw := internalTokenMiddleware(internalToken)
 	r.Post("/internal/events", tokenMw(NewEventsHandler(broker)).ServeHTTP)
 	r.Get("/api/events/recent", tokenMw(NewRecentEventsHandler(database)).ServeHTTP)
 	r.Get("/api/operations/summary", tokenMw(NewOperationsSummaryHandler(database)).ServeHTTP)
 	r.Get("/api/capacity/latest", tokenMw(NewCapacityHandler(resultsDir)).ServeHTTP)
 	r.Get("/api/metrics/runtime", tokenMw(NewRuntimeMetricsHandler(database, sqsClient, sqsQueueURL, q)).ServeHTTP)
+	r.Get("/api/traces/{traceID}", tokenMw(NewTracesHandler(tempoClient, database)).ServeHTTP)
 
 	return r
 }

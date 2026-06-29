@@ -6,13 +6,15 @@ import (
 )
 
 type RuntimeMetrics struct {
-	WindowSeconds int     `json:"window_seconds"`
-	P95LatencyMs  float64 `json:"p95_latency_ms"`
-	AvgLatencyMs  float64 `json:"avg_latency_ms"`
-	SuccessRate   float64 `json:"success_rate"`
-	ErrorRate     float64 `json:"error_rate"`
-	Completed     int     `json:"completed"`
-	Failed        int     `json:"failed"`
+	WindowSeconds  int     `json:"window_seconds"`
+	P95LatencyMs   float64 `json:"p95_latency_ms"`
+	AvgLatencyMs   float64 `json:"avg_latency_ms"`
+	SuccessRate    float64 `json:"success_rate"`
+	ErrorRate      float64 `json:"error_rate"`
+	Completed      int     `json:"completed"`
+	Failed         int     `json:"failed"`
+	TotalCompleted int     `json:"total_completed"`
+	TotalFailed    int     `json:"total_failed"`
 }
 
 func (d *DB) RuntimeMetrics(ctx context.Context, windowSeconds int) (*RuntimeMetrics, error) {
@@ -28,6 +30,12 @@ func (d *DB) RuntimeMetrics(ctx context.Context, windowSeconds int) (*RuntimeMet
 				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
 				COUNT(*) FILTER (WHERE status = 'failed')    AS failed
 			FROM window_tasks
+		),
+		totals AS (
+			SELECT
+				COUNT(*) FILTER (WHERE status = 'completed') AS total_completed,
+				COUNT(*) FILTER (WHERE status = 'failed')    AS total_failed
+			FROM tasks
 		),
 		latencies AS (
 			SELECT
@@ -54,8 +62,10 @@ func (d *DB) RuntimeMetrics(ctx context.Context, windowSeconds int) (*RuntimeMet
 			CASE WHEN (c.completed + c.failed) > 0
 				THEN c.failed::double precision / (c.completed + c.failed) * 100
 				ELSE 0
-			END AS error_rate
-		FROM counts c, latencies l`
+			END AS error_rate,
+			t.total_completed,
+			t.total_failed
+		FROM counts c, latencies l, totals t`
 
 	m := &RuntimeMetrics{WindowSeconds: windowSeconds}
 	err := d.pool.QueryRow(ctx, query, windowSeconds).Scan(
@@ -65,6 +75,8 @@ func (d *DB) RuntimeMetrics(ctx context.Context, windowSeconds int) (*RuntimeMet
 		&m.AvgLatencyMs,
 		&m.SuccessRate,
 		&m.ErrorRate,
+		&m.TotalCompleted,
+		&m.TotalFailed,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("db.RuntimeMetrics: %w", err)

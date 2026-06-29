@@ -17,14 +17,16 @@ import (
 )
 
 type runtimeMetricsResponse struct {
-	WindowSeconds int     `json:"window_seconds"`
-	P95LatencyMs  float64 `json:"p95_latency_ms"`
-	AvgLatencyMs  float64 `json:"avg_latency_ms"`
-	SuccessRate   float64 `json:"success_rate"`
-	ErrorRate     float64 `json:"error_rate"`
-	Completed     int     `json:"completed"`
-	Failed        int     `json:"failed"`
-	QueueDepth    int     `json:"queue_depth"`
+	WindowSeconds  int     `json:"window_seconds"`
+	P95LatencyMs   float64 `json:"p95_latency_ms"`
+	AvgLatencyMs   float64 `json:"avg_latency_ms"`
+	SuccessRate    float64 `json:"success_rate"`
+	ErrorRate      float64 `json:"error_rate"`
+	Completed      int     `json:"completed"`
+	Failed         int     `json:"failed"`
+	TotalCompleted int     `json:"total_completed"`
+	TotalFailed    int     `json:"total_failed"`
+	QueueDepth     int     `json:"queue_depth"`
 }
 
 type RuntimeMetricsHandler struct {
@@ -67,14 +69,16 @@ func (h *RuntimeMetricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(runtimeMetricsResponse{
-		WindowSeconds: m.WindowSeconds,
-		P95LatencyMs:  m.P95LatencyMs,
-		AvgLatencyMs:  m.AvgLatencyMs,
-		SuccessRate:   m.SuccessRate,
-		ErrorRate:     m.ErrorRate,
-		Completed:     m.Completed,
-		Failed:        m.Failed,
-		QueueDepth:    depth,
+		WindowSeconds:  m.WindowSeconds,
+		P95LatencyMs:   m.P95LatencyMs,
+		AvgLatencyMs:   m.AvgLatencyMs,
+		SuccessRate:    m.SuccessRate,
+		ErrorRate:      m.ErrorRate,
+		Completed:      m.Completed,
+		Failed:         m.Failed,
+		TotalCompleted: m.TotalCompleted,
+		TotalFailed:    m.TotalFailed,
+		QueueDepth:     depth,
 	})
 }
 
