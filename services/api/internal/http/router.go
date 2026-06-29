@@ -55,6 +55,33 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	r.Post("/api/alerts/{id}/acknowledge", tokenMw(http.HandlerFunc(alertsHandler.Acknowledge)).ServeHTTP)
 	r.Get("/api/alerts/stats", tokenMw(http.HandlerFunc(alertsHandler.Stats)).ServeHTTP)
 
+	// Replay Task (Phase 11)
+	replayHandler := handlers.NewReplayHandler(database, broker, sqsClient, sqsQueueURL)
+	r.Post("/api/tasks/{taskID}/replay", tokenMw(http.HandlerFunc(replayHandler.Replay)).ServeHTTP)
+	r.Options("/api/tasks/{taskID}/replay", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// DLQ Explorer (Phase 11)
+	dlqURL := os.Getenv("SQS_DLQ_URL")
+	if dlqURL != "" && sqsClient != nil {
+		dlqHandler := handlers.NewDLQHandler(database, broker, sqsClient, dlqURL, sqsQueueURL)
+		r.Get("/api/dlq/messages", tokenMw(http.HandlerFunc(dlqHandler.ListMessages)).ServeHTTP)
+		r.Post("/api/dlq/messages/{messageID}/retry", tokenMw(http.HandlerFunc(dlqHandler.Retry)).ServeHTTP)
+		r.Delete("/api/dlq/messages/{messageID}", tokenMw(http.HandlerFunc(dlqHandler.Delete)).ServeHTTP)
+		r.Post("/api/dlq/purge", tokenMw(http.HandlerFunc(dlqHandler.Purge)).ServeHTTP)
+		r.Get("/api/dlq/stats", tokenMw(http.HandlerFunc(dlqHandler.Stats)).ServeHTTP)
+		r.Options("/api/dlq/messages/{messageID}/retry", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+		r.Options("/api/dlq/messages/{messageID}", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+		r.Options("/api/dlq/purge", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+
 	return r
 }
 
@@ -69,7 +96,7 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 			if originSet[origin] {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Internal-Token")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "DENY")

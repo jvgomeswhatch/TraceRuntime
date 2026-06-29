@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, LayoutDashboard, ListTodo, GitBranch } from "lucide-react";
+import { Activity, LayoutDashboard, ListTodo, GitBranch, Bell, Inbox } from "lucide-react";
 import { useSSEContext } from "@/components/providers/sse-provider";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/traces", label: "Traces", icon: GitBranch },
+  { href: "/alerts", label: "Alerts", icon: Bell },
+  { href: "/dlq", label: "DLQ", icon: Inbox },
 ] as const;
 
 function SystemIndicator() {

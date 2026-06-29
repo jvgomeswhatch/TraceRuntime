@@ -105,6 +105,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
+      - SQS_DLQ_URL=http://localstack:4566/000000000000/traceruntime-tasks-dlq
       - DATABASE_URL=postgres://traceruntime:traceruntime@postgres:5432/traceruntime?sslmode=disable&pool_max_conns=5
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
