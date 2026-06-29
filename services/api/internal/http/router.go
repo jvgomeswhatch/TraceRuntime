@@ -13,6 +13,7 @@ import (
 
 	"github.com/runtime-platform/services/api/internal/db"
 	"github.com/runtime-platform/services/api/internal/event"
+	"github.com/runtime-platform/services/api/internal/handlers"
 	"github.com/runtime-platform/services/api/internal/queue"
 	"github.com/runtime-platform/services/api/internal/tempo"
 )
@@ -47,6 +48,12 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	r.Get("/api/capacity/latest", tokenMw(NewCapacityHandler(resultsDir)).ServeHTTP)
 	r.Get("/api/metrics/runtime", tokenMw(NewRuntimeMetricsHandler(database, sqsClient, sqsQueueURL, q)).ServeHTTP)
 	r.Get("/api/traces/{traceID}", tokenMw(NewTracesHandler(tempoClient, database)).ServeHTTP)
+
+	// Alert Center (Phase 11)
+	alertsHandler := handlers.NewAlertsHandler(database, broker)
+	r.Get("/api/alerts", tokenMw(http.HandlerFunc(alertsHandler.List)).ServeHTTP)
+	r.Post("/api/alerts/{id}/acknowledge", tokenMw(http.HandlerFunc(alertsHandler.Acknowledge)).ServeHTTP)
+	r.Get("/api/alerts/stats", tokenMw(http.HandlerFunc(alertsHandler.Stats)).ServeHTTP)
 
 	return r
 }

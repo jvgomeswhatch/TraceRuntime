@@ -37,7 +37,7 @@ func (d *DB) InsertHealingEvent(ctx context.Context, eventType, severity, source
 func (d *DB) ResolveHealingEvent(ctx context.Context, id string) error {
 	_, err := d.pool.Exec(ctx,
 		`UPDATE healing_events SET status = 'resolved', resolved_at = NOW()
-		 WHERE id = $1::uuid AND status = 'active'`,
+		 WHERE id = $1::uuid AND status IN ('active', 'acknowledged')`,
 		id,
 	)
 	if err != nil {
