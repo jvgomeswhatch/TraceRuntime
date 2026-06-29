@@ -56,9 +56,12 @@ export const StatusCards = React.memo(function StatusCards() {
   const hasQueueLag = activeHealingEvents.some(
     (e) => e.event_type === "queue.lag"
   );
-  const hasDlqNonempty = activeHealingEvents.some(
+  const dlqEvent = activeHealingEvents.find(
     (e) => e.event_type === "dlq.nonempty"
   );
+  const dlqDepth = dlqEvent
+    ? Number(dlqEvent.details?.depth ?? 0)
+    : 0;
 
   const workerStatusColor: "green" | "amber" | "red" | "zinc" =
     totalWorkers === 0 ? "zinc" : staleCount > 0 ? "amber" : "green";
@@ -110,14 +113,22 @@ export const StatusCards = React.memo(function StatusCards() {
       <StatusCard
         icon={<AlertTriangle className="size-4" />}
         label="DLQ"
-        statusColor={hasDlqNonempty ? "red" : "green"}
-        accentBar={hasDlqNonempty ? "bg-red-500" : "bg-emerald-500"}
+        statusColor={dlqDepth > 0 ? "red" : "green"}
+        accentBar={dlqDepth > 0 ? "bg-red-500" : "bg-emerald-500"}
       >
-        <span
-          className={`text-lg font-semibold ${hasDlqNonempty ? "text-red-400" : "text-emerald-400"}`}
-        >
-          {hasDlqNonempty ? "Has Messages" : "Empty"}
-        </span>
+        <div className="flex items-baseline gap-2">
+          <span
+            className={`text-2xl font-bold tabular-nums ${dlqDepth > 0 ? "text-red-400" : "text-emerald-400"}`}
+          >
+            {dlqDepth}
+          </span>
+          {dlqDepth === 0 && (
+            <span className="flex items-center gap-1 text-xs text-zinc-500">
+              <CheckCircle2 className="size-3 text-emerald-500" />
+              empty
+            </span>
+          )}
+        </div>
       </StatusCard>
 
       {/* Incidents */}

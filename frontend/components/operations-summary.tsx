@@ -35,7 +35,7 @@ function displayEventType(eventType: string): string {
     "worker.down": "Worker Offline",
     "task.stuck": "Task Frozen",
     "queue.lag": "Queue Overload",
-    "dlq.nonempty": "Dead Letters",
+    "dlq.nonempty": "DLQ",
   };
   return map[eventType] ?? eventType;
 }
