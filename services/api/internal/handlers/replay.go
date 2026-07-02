@@ -57,7 +57,7 @@ func (h *ReplayHandler) Replay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req replayRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	var payload string
 	if req.OverridePayload != "" {
@@ -103,7 +103,7 @@ func (h *ReplayHandler) Replay(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	if err != nil {
-		h.db.SetFailed(ctx, newTaskID, "sqs: publish failed on replay")
+		_ = h.db.SetFailed(ctx, newTaskID, "sqs: publish failed on replay")
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -133,11 +133,11 @@ func (h *ReplayHandler) Replay(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ReplayHandler) checkQueueDepth(ctx context.Context) error {
-	out, err := h.sqsClient.GetQueueAttributes(ctx, &sqssdk.GetQueueAttributesInput{
+	out, _ := h.sqsClient.GetQueueAttributes(ctx, &sqssdk.GetQueueAttributesInput{
 		QueueUrl:       aws.String(h.sqsURL),
 		AttributeNames: []sqstypes.QueueAttributeName{"ApproximateNumberOfMessages"},
 	})
-	if err != nil {
+	if out == nil {
 		return nil
 	}
 	var depth int

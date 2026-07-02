@@ -36,7 +36,7 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
-		fmt.Sscanf(l, "%d", &limit)
+		_, _ = fmt.Sscanf(l, "%d", &limit)
 	}
 	params.Limit = limit
 
@@ -61,7 +61,7 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"alerts":             alerts,
 		"next_cursor":        nextCursor,
 		"total_active":       activeCount,
@@ -90,7 +90,7 @@ func (h *AlertsHandler) Acknowledge(w http.ResponseWriter, r *http.Request) {
 	h.broker.Publish(sseEvent)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id":              id,
 		"status":          "acknowledged",
 		"acknowledged_at": time.Now().UTC().Format(time.RFC3339),
@@ -107,7 +107,7 @@ func (h *AlertsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"active":                 stats.Active,
 		"acknowledged":           stats.Acknowledged,
 		"resolved_24h":           stats.Resolved24h,
@@ -120,5 +120,5 @@ func (h *AlertsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

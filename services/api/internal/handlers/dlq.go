@@ -61,7 +61,7 @@ func (h *DLQHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, msg := range output.Messages {
-		h.sqsClient.ChangeMessageVisibility(ctx, &sqssdk.ChangeMessageVisibilityInput{
+		_, _ = h.sqsClient.ChangeMessageVisibility(ctx, &sqssdk.ChangeMessageVisibilityInput{
 			QueueUrl:          aws.String(h.dlqURL),
 			ReceiptHandle:     msg.ReceiptHandle,
 			VisibilityTimeout: 0,
@@ -71,7 +71,7 @@ func (h *DLQHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	messages := make([]dlqMessage, 0, len(output.Messages))
 	for _, msg := range output.Messages {
 		var body map[string]string
-		json.Unmarshal([]byte(*msg.Body), &body)
+		_ = json.Unmarshal([]byte(*msg.Body), &body)
 
 		taskStatus, errorMsg, _ := h.db.GetTaskStatus(ctx, body["task_id"])
 
@@ -104,7 +104,7 @@ func (h *DLQHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	})
 	approxCount := 0
 	if attrOut != nil {
-		fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessages"], "%d", &approxCount)
+		_, _ = fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessages"], "%d", &approxCount)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -161,12 +161,12 @@ func (h *DLQHandler) Retry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body map[string]string
-	json.Unmarshal([]byte(req.MessageBody), &body)
+	_ = json.Unmarshal([]byte(req.MessageBody), &body)
 	taskID := body["task_id"]
-	h.db.RevertToPendingForRetry(ctx, taskID)
+	_ = h.db.RevertToPendingForRetry(ctx, taskID)
 
 	details, _ := json.Marshal(map[string]string{"task_id": taskID})
-	h.db.InsertAuditEvent(ctx, "dlq.message.retried", "info", "operator", details)
+	_, _ = h.db.InsertAuditEvent(ctx, "dlq.message.retried", "info", "operator", details)
 
 	sseEvent, _ := json.Marshal(map[string]string{
 		"event_type": "task.retrying",
@@ -247,7 +247,7 @@ func (h *DLQHandler) Purge(w http.ResponseWriter, r *http.Request) {
 	})
 	approxCount := 0
 	if attrOut != nil {
-		fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessages"], "%d", &approxCount)
+		_, _ = fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessages"], "%d", &approxCount)
 	}
 
 	details, _ := json.Marshal(map[string]string{"approximate_count": fmt.Sprintf("%d", approxCount)})
@@ -291,8 +291,8 @@ func (h *DLQHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var approxMsgs, approxNotVis int
-	fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessages"], "%d", &approxMsgs)
-	fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessagesNotVisible"], "%d", &approxNotVis)
+	_, _ = fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessages"], "%d", &approxMsgs)
+	_, _ = fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessagesNotVisible"], "%d", &approxNotVis)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{

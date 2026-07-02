@@ -130,7 +130,7 @@ func (h *ChaosHandler) GetReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // Trigger + Status endpoints (Task 20)
@@ -377,7 +377,7 @@ func (h *ChaosHandler) statusByRunID(w http.ResponseWriter, runID string) {
 	reqPath := filepath.Clean(filepath.Join(h.requestDir, runID+".json"))
 	reqData, _ := os.ReadFile(reqPath)
 	var req chaosRequest
-	json.Unmarshal(reqData, &req)
+	_ = json.Unmarshal(reqData, &req)
 
 	status := h.resolveRunStatus(runID)
 
@@ -444,7 +444,7 @@ func (h *ChaosHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 			Name string `json:"name"`
 		} `json:"scenarios"`
 	}
-	json.Unmarshal(data, &raw)
+	_ = json.Unmarshal(data, &raw)
 
 	filesRemoved := 0
 
