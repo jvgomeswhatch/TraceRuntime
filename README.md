@@ -2,8 +2,6 @@
 
 Local-first distributed AI runtime platform with full observability, distributed tracing, auto-healing, chaos testing, and realtime operational control.
 
-Developed by **João Vitor Gomes**.
-
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)
