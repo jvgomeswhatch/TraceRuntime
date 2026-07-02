@@ -1,170 +1,134 @@
 # TraceRuntime
 
-Local-first distributed AI runtime platform with full observability, distributed tracing, auto-healing, and realtime operational visibility.
+Local-first distributed AI runtime with full observability, distributed tracing, auto-healing, chaos testing, and realtime operational control.
+
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-1.12-844FBA?logo=terraform&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-OTEL-F5A800?logo=opentelemetry&logoColor=white)
+
+---
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 14, TypeScript, Tailwind, shadcn/ui, SSE |
-| Backend | Go 1.26, net/http, chi |
-| AI Runtime | Python 3.11, FastAPI, LangGraph, Ollama |
-| Queue | SQS (LocalStack) |
-| Database | PostgreSQL 16 (pgx, no ORM) |
-| Infrastructure | Docker Compose, LocalStack, Terraform |
-| Observability | OpenTelemetry, Prometheus, Grafana, Tempo, Loki |
+| Frontend | Next.js 16 · TypeScript · Tailwind · shadcn/ui · SSE |
+| Backend | Go 1.26 · net/http · chi |
+| AI Runtime | Python 3.11 · FastAPI · LangGraph · Ollama |
+| Queue | SQS via LocalStack |
+| Database | PostgreSQL 16 · pgx (no ORM) |
+| Infrastructure | Docker Compose · LocalStack · Terraform |
+| Observability | OpenTelemetry · Prometheus · Grafana · Tempo · Loki |
+| CI/CD | GitHub Actions (5 workflows, SHA-pinned) |
 
 ## Architecture
 
 ```
 HTTP Request
-  -> Go API           (trace_id generated, span opened)
-  -> SQS              (message enqueued via LocalStack)
-  -> Go Worker         (trace propagated via W3C carrier)
-  -> AI Runtime        (FastAPI -> LangGraph -> Ollama)
-  -> S3                (output persisted)
-  -> SSE stream        (frontend updated in realtime)
-  -> Prometheus        (metrics exposed)
-  -> OTEL Collector    (spans -> Tempo, logs -> Loki)
+  → Go API           (trace_id generated, span opened)
+  → SQS              (message enqueued via LocalStack)
+  → Go Worker         (trace propagated via W3C carrier)
+  → AI Runtime        (FastAPI → LangGraph → Ollama)
+  → S3                (output persisted)
+  → SSE stream        (frontend updated in realtime)
+  → Prometheus        (metrics exposed)
+  → OTEL Collector    (spans → Tempo, logs → Loki)
 ```
+
+The same `trace_id` propagates end-to-end — from HTTP request to frontend.
+
+## Features
+
+**Operational Dashboard** — realtime SSE-powered UI with task management, trace visualization, KPI cards, system timeline, and capacity reports.
+
+**Alert Center** — filterable alert list with severity levels, acknowledgment workflow, and auto-refresh.
+
+**DLQ Explorer** — inspect dead-letter queue messages, view payloads, retry or delete individual messages.
+
+**Replay** — re-execute failed or completed tasks with full trace lineage preservation.
+
+**Chaos Testing** — controlled failure injection (worker crash, AI failure, queue flood, latency spikes) with scenario runner, report generation, and dedicated dashboard.
+
+**Auto-Healing** — watchdog service with heartbeat monitoring, stale worker detection, queue lag alerting, and healing event visibility via SSE.
+
+**Distributed Tracing** — full W3C Trace Context propagation across HTTP → SQS → Worker → AI Runtime, visualized via Tempo and the trace detail page.
 
 ## Requirements
 
-- Docker Desktop (with Docker Compose v2)
+- Docker Desktop (with Compose v2)
 - 14 GB RAM minimum
 - Go 1.26+
 - Node.js 22+
 - Python 3.11+
-- Terraform 1.12+ (or use containerized version via `make bootstrap`)
-- AWS CLI (for queue inspection commands)
+- Terraform 1.12+
 
 No GPU required. No cloud APIs. Everything runs locally.
 
 ## Quick Start
 
 ```bash
-# First-time setup (provisions infrastructure + starts services)
+# First-time setup
 make bootstrap
 
 # Open the dashboard
 open http://localhost:3001
 ```
 
-`make bootstrap` is idempotent and safe to run multiple times. It:
+`make bootstrap` provisions infrastructure (LocalStack, PostgreSQL, Terraform, migrations) and starts all services.
 
-1. Creates the Docker network
-2. Starts LocalStack + PostgreSQL
-3. Runs Terraform to provision SQS queues and S3 bucket
-4. Runs database migrations
-5. Starts API, Worker, Watchdog, and Frontend
-
-## Daily Development
+## Development
 
 ```bash
-make up          # Start all services (no rebuild, no Terraform)
-make up-full     # Same as up, but includes AI Runtime (Ollama)
-make build       # Build all container images (no start)
+make up          # Start all services
+make up-full     # Start with AI Runtime (Ollama)
 make rebuild     # Build + start all services
-make down        # Stop all services + observability
+make down        # Stop everything
 make restart     # down + up
 make reset       # Destroy volumes + bootstrap from scratch
 ```
 
-**Important:** `make up` does NOT rebuild containers. If you changed Go, Python, or frontend code, run `make rebuild`.
-
-## Monitoring & Operations
-
-```bash
-make health       # Check health of all services
-make ps           # Show running containers
-make logs         # Tail logs from all services
-make queue-stats  # Show SQS queue depth and inflight messages
-```
-
 ## Testing
 
-### Unit Tests
-
 ```bash
-make test          # Run all unit tests (Go + Python)
-make test-go       # Go tests only (api, worker, watchdog)
-make test-python   # Python tests only (ai-runtime)
+make test                # Unit tests (Go + Python)
+make test-go             # Go tests only
+make test-python         # Python tests only
+make test-integration    # E2E against real services (no mocks)
+make test-all            # Unit + integration
 ```
 
 ### Linting
 
 ```bash
-make lint             # Run all linters
-make lint-go          # golangci-lint on all Go services
-make lint-frontend    # ESLint + TypeScript type checking
-make lint-python      # ruff on ai-runtime
-make lint-terraform   # terraform fmt + validate
-```
-
-### Formatting
-
-```bash
-make fmt           # Format Go and Terraform files
-```
-
-### Integration Tests (E2E)
-
-Runs against real services (PostgreSQL, LocalStack, SQS, S3). No mocks.
-
-```bash
-# Start services in test mode
-make test-integration-up
-
-# Run integration tests
-make test-integration
-
-# Stop test environment
-make test-integration-down
-
-# Run everything (unit + integration)
-make test-all
+make lint                # All linters
+make lint-go             # golangci-lint
+make lint-frontend       # ESLint + TypeScript
+make lint-python         # ruff
+make lint-terraform      # terraform fmt + validate
 ```
 
 ### Load Testing
 
 ```bash
-make loadtest                           # 50 tasks, rate 2/s, concurrency 4
-make loadtest TASKS=100 RATE=5          # Custom parameters
-make loadtest CONCURRENCY=8            # More concurrent workers
+make loadtest                        # 50 tasks, rate 2/s
+make loadtest TASKS=100 RATE=5       # Custom parameters
 ```
-
-Results are saved to `results/` and displayed in the "Last Benchmark" dashboard card.
 
 ### Chaos Testing
 
-Controlled failure injection to validate resilience and auto-healing.
-
 ```bash
-make chaos-up                          # Start services in chaos mode
-make chaos                             # Run all chaos scenarios
-make chaos SCENARIO=worker-crash       # Run specific scenario
-make chaos LIST=true                   # List available scenarios
-make chaos-down                        # Stop chaos environment
-make chaos-reset                       # Full reset + re-bootstrap
-```
-
-## Infrastructure
-
-### Terraform
-
-```bash
-make infra-init       # Initialize Terraform
-make infra-plan       # Preview changes
-make infra-apply      # Apply (creates SQS queues, S3 bucket)
-make infra-destroy    # Tear down all resources
-make infra-fmt        # Format Terraform files
-make infra-validate   # Validate configuration
-make infra-smoke      # Smoke test (verify queues + bucket exist)
+make chaos                           # Run all chaos scenarios
+make chaos SCENARIO=worker-crash     # Specific scenario
+make chaos LIST=true                 # List available scenarios
 ```
 
 ## Services
 
-| Service | Port | Health Check |
+| Service | Port | Health |
 |---|---|---|
 | API | 8082 | `GET /health` |
 | Worker | 9091 | `GET /health` |
@@ -184,100 +148,67 @@ make infra-smoke      # Smoke test (verify queues + bucket exist)
 | Loki | 3100 | http://localhost:3100 |
 | OTEL Collector | 4317/4318 | gRPC / HTTP |
 
-## Docker Compose Profiles
-
-| Profile | Services |
-|---|---|
-| `core` | localstack, postgres, migrate, api, worker, frontend |
-| `no-ai` | Same as core (development without AI runtime) |
-| `full` | core + ai-runtime |
-| `infra` | localstack + terraform (provisioning only) |
+Grafana ships with 4 pre-built dashboards: Runtime Overview, Queue & Worker, AI Pipeline, and LLM Capacity.
 
 ## AI Runtime
 
-The AI Runtime is a Python service (FastAPI + LangGraph) that handles inference. The Worker communicates with it via a simple HTTP contract:
-
-**Request:** `POST /infer`
-```json
-{
-  "task_id": "uuid",
-  "input": "user prompt text",
-  "deadline_unix_ms": 1719500000000
-}
-```
-
-**Response:**
-```json
-{
-  "output": "model response",
-  "execution_status": "completed",
-  "inference_duration_ms": 1200,
-  "prompt_tokens": 45,
-  "completion_tokens": 120,
-  "tokens_per_second": 25.5,
-  "execution_profile": { "model": "qwen2.5:3b" }
-}
-```
+The AI Runtime handles inference via a simple HTTP contract. The Worker calls `POST /infer` and receives a structured response — whatever happens inside (Ollama, OpenAI, chain of models) is invisible to the rest of the system.
 
 ### Current provider: Ollama (local)
 
-By default, the AI Runtime uses Ollama to run models locally with zero cloud dependency:
-
 | Task Type | Model | Trigger |
 |---|---|---|
-| Coding | `deepseek-coder:6.7b` | Input contains keywords like "code", "function", "debug" |
+| Coding | `deepseek-coder:6.7b` | Input contains code-related keywords |
 | General | `qwen2.5:3b` | Everything else |
 
-Models are configurable via environment variables: `GENERAL_MODEL`, `CODING_MODEL`, `OLLAMA_HOST`.
+Configurable via: `GENERAL_MODEL`, `CODING_MODEL`, `OLLAMA_HOST`.
 
-### Can I use OpenAI, Gemini, or other cloud providers?
+## CI/CD Pipeline
 
-**Not out of the box.** The current implementation calls Ollama's `/api/generate` endpoint directly in `ollama_client.py`. To use a cloud provider you would need to:
+5 GitHub Actions workflows, all SHA-pinned:
 
-1. Create a new client (e.g. `openai_client.py`) that implements the same `generate()` interface
-2. Update `graph.py` to use the new client instead of `ollama_client`
-3. The Worker does not need changes — it only knows the `/infer` HTTP contract
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| CI — Validation | push + PR | Build, test, lint (Go/Frontend/Python), Terraform validate, Hadolint |
+| Security | push + PR | CodeQL SAST, Gitleaks, govulncheck, pip-audit, npm audit |
+| Integration | push + PR | Terraform apply, migrations, smoke test, schema validation |
+| E2E — PR | PR only | Build containers, start services, run integration tests |
+| E2E — Full | push only | Same as PR + Trivy container scan, SBOM generation, artifacts |
 
-The Worker-to-AI-Runtime boundary is fully decoupled via HTTP. Whatever happens inside the AI Runtime (Ollama, OpenAI, Gemini, a chain of models) is invisible to the rest of the system, as long as `/infer` returns the expected JSON response.
+## Infrastructure
 
-## CI Pipeline
-
-The GitHub Actions pipeline runs on every push/PR to `main` and `developer`:
-
-| Job | What it validates |
-|---|---|
-| Quality Gate | Go build + tests + lint, frontend lint + typecheck + build, Python lint + tests, Terraform validation, Docker Compose config |
-| Skill Security Scan | Static analysis of AI agent/skill definitions (SkillSpector) |
-| Integration | Terraform provisioning, database migrations, infrastructure smoke test |
-| E2E Validation | Full system test with all containers running against real infrastructure |
+```bash
+make infra-init          # Initialize Terraform
+make infra-plan          # Preview changes
+make infra-apply         # Apply (SQS queues, S3 bucket, DLQ)
+make infra-destroy       # Tear down
+make infra-smoke         # Verify queues + bucket exist
+```
 
 ## Project Structure
 
 ```
 TraceRuntime/
 ├── services/
-│   ├── api/                 # Go — HTTP API, SSE, task management, metrics
+│   ├── api/                 # Go — HTTP API, SSE, task management
 │   ├── worker/              # Go — SQS consumer, task processing, S3 output
-│   └── watchdog/            # Go — auto-healing, heartbeat monitoring, fault detection
+│   └── watchdog/            # Go — auto-healing, heartbeat monitoring
 ├── frontend/                # Next.js — operational dashboard (SSE realtime)
 ├── ai-runtime/              # Python — FastAPI, LangGraph, Ollama inference
 ├── infra/
 │   ├── terraform/           # SQS, S3, DLQ provisioning (LocalStack)
-│   ├── database/
-│   │   └── migrations/      # PostgreSQL schema migrations
+│   ├── database/migrations/ # PostgreSQL schema (9 migrations)
 │   └── observability/       # Prometheus, Grafana, Tempo, Loki, OTEL Collector
-├── tests/
-│   └── integration/         # E2E tests (Go, runs against real services)
-│       └── cmd/
-│           └── mock-ai-runtime/  # Mock inference server for CI
+├── tests/integration/       # E2E tests against real services
 ├── cmd/
 │   ├── loadtest/            # Load testing tool
 │   └── chaos/               # Chaos testing framework
-├── results/                 # Load test and chaos test reports
-├── scripts/                 # Bootstrap and smoke test scripts
+├── scripts/                 # Bootstrap and smoke test
 ├── docker-compose.yml       # Main orchestration
-├── Makefile                 # All commands documented above
-└── .github/
-    └── workflows/
-        └── ci.yml           # CI pipeline (Quality Gate, Integration, E2E)
+├── Makefile                 # All commands
+└── .github/workflows/       # 5 CI/CD pipelines
 ```
+
+## License
+
+All rights reserved.
