@@ -59,6 +59,12 @@ func (d *DB) ListActiveHealingEvents(ctx context.Context, limit int) ([]HealingE
 		`SELECT id, event_type, severity, source, status, COALESCE(worker_id, ''), details, created_at, resolved_at
 		 FROM healing_events
 		 WHERE status = 'active'
+		   AND chaos_run_id IS NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM chaos_runs
+		     WHERE status IN ('running','completed')
+		       AND healing_events.created_at BETWEEN started_at AND COALESCE(completed_at, NOW())
+		   )
 		 ORDER BY created_at DESC
 		 LIMIT $1`, limit)
 	if err != nil {
@@ -81,6 +87,12 @@ func (d *DB) ListRecentHealingEvents(ctx context.Context, limit int) ([]HealingE
 	rows, err := d.pool.Query(ctx,
 		`SELECT id, event_type, severity, source, status, COALESCE(worker_id, ''), details, created_at, resolved_at
 		 FROM healing_events
+		 WHERE chaos_run_id IS NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM chaos_runs
+		     WHERE status IN ('running','completed')
+		       AND healing_events.created_at BETWEEN started_at AND COALESCE(completed_at, NOW())
+		   )
 		 ORDER BY created_at DESC
 		 LIMIT $1`, limit)
 	if err != nil {

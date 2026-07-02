@@ -26,3 +26,13 @@ func Open(ctx context.Context, dsn string) (*DB, error) {
 func (d *DB) Close() {
 	d.pool.Close()
 }
+
+func (d *DB) IsChaosRunActive(ctx context.Context) bool {
+	var exists bool
+	err := d.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM chaos_runs WHERE status = 'running')`).Scan(&exists)
+	if err != nil {
+		return false
+	}
+	return exists
+}

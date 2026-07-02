@@ -40,9 +40,10 @@ type Detector struct {
 }
 
 type activeEntry struct {
-	eventID   string
-	eventType string
-	severity  string
+	eventID    string
+	eventType  string
+	severity   string
+	chaosRunID *string
 }
 
 // New creates a Detector and reconstructs its active-event map from
@@ -83,7 +84,7 @@ func (d *Detector) reconstructActiveState() error {
 	for _, ev := range events {
 		key := d.keyForEvent(ev)
 		if key != "" {
-			d.active[key] = activeEntry{eventID: ev.ID, eventType: ev.EventType, severity: ev.Severity}
+			d.active[key] = activeEntry{eventID: ev.ID, eventType: ev.EventType, severity: ev.Severity, chaosRunID: ev.ChaosRunID}
 		}
 	}
 
@@ -116,6 +117,14 @@ func (d *Detector) keyForEvent(ev db.HealingEvent) string {
 		if json.Unmarshal(ev.Details, &det) == nil {
 			if tid, ok := det["task_id"].(string); ok {
 				return "task.stuck:" + tid
+			}
+		}
+		return ""
+	case "task.abandoned":
+		var det map[string]any
+		if json.Unmarshal(ev.Details, &det) == nil {
+			if tid, ok := det["task_id"].(string); ok {
+				return "task.abandoned:" + tid
 			}
 		}
 		return ""
@@ -157,6 +166,7 @@ func (d *Detector) poll(ctx context.Context) {
 	d.detectWorkerDown(ctx)
 	d.detectQueueLag(ctx)
 	d.detectStuckTasks(ctx)
+	d.detectAbandonedTasks(ctx)
 	d.detectDLQ(ctx)
 
 	elapsed := time.Since(start).Seconds()
@@ -248,7 +258,7 @@ func (d *Detector) detectStaleWorkers(ctx context.Context) {
 					"last_seen":   hb.LastSeenAt.Format(time.RFC3339),
 					"gap_seconds": int(gap.Seconds()),
 				})
-				d.emit(ctx, key, "worker.stale", "warning", hb.WorkerID, details)
+				d.emit(ctx, key, "worker.stale", "warning", hb.WorkerID, details, nil)
 			}
 		}
 	}
@@ -344,7 +354,7 @@ func (d *Detector) evaluateWorkerDown(ctx context.Context) {
 		"consecutive_failures": d.healthFailures,
 		"threshold":            d.cfg.HealthcheckFailures,
 	})
-	d.emit(ctx, key, "worker.down", "critical", "", details)
+	d.emit(ctx, key, "worker.down", "critical", "", details, nil)
 	metrics.WorkersDown.Set(1)
 }
 
@@ -368,7 +378,7 @@ func (d *Detector) detectQueueLag(ctx context.Context) {
 				"depth":     depth,
 				"threshold": d.cfg.QueueLagThreshold,
 			})
-			d.emit(ctx, key, "queue.lag", "warning", "", details)
+			d.emit(ctx, key, "queue.lag", "warning", "", details, nil)
 		}
 	} else {
 		d.mu.Lock()
@@ -409,7 +419,7 @@ func (d *Detector) detectStuckTasks(ctx context.Context) {
 				"stuck_seconds":  int(stuckDuration.Seconds()),
 				"started_at":     st.ProcessingStartedAt.Format(time.RFC3339),
 			})
-			d.emit(ctx, key, "task.stuck", "warning", "", details)
+			d.emit(ctx, key, "task.stuck", "warning", "", details, st.ChaosRunID)
 		}
 	}
 
@@ -422,6 +432,83 @@ func (d *Detector) detectStuckTasks(ctx context.Context) {
 		}
 		taskID := strings.TrimPrefix(key, "task.stuck:")
 		if !currentlyStuck[taskID] {
+			toResolve = append(toResolve, key)
+		}
+	}
+	d.mu.Unlock()
+
+	for _, key := range toResolve {
+		d.resolve(ctx, key)
+	}
+}
+
+func (d *Detector) detectAbandonedTasks(ctx context.Context) {
+	abandoned, err := d.db.AbandonedTasks(ctx, d.cfg.TaskAbandonedSeconds)
+	if err != nil {
+		slog.Error("detector.abandoned_tasks query failed", "error", err)
+		return
+	}
+
+	metrics.AbandonedTasks.Set(float64(len(abandoned)))
+
+	if len(abandoned) == 0 {
+		// Resolve any previously active task.abandoned events.
+		d.mu.Lock()
+		var toResolve []string
+		for key := range d.active {
+			if strings.HasPrefix(key, "task.abandoned:") {
+				toResolve = append(toResolve, key)
+			}
+		}
+		d.mu.Unlock()
+		for _, key := range toResolve {
+			d.resolve(ctx, key)
+		}
+		return
+	}
+
+	// Determine confidence by cross-referencing SQS state.
+	confidence := "suspected"
+	queueDepth, qErr := d.getQueueDepth(ctx, d.cfg.SQSQueueURL)
+	dlqDepth, dErr := d.getQueueDepth(ctx, d.cfg.SQSDlqURL)
+	if qErr == nil && dErr == nil && queueDepth == 0 && dlqDepth == 0 {
+		confidence = "likely"
+	}
+
+	currentlyAbandoned := make(map[string]bool, len(abandoned))
+
+	for _, at := range abandoned {
+		key := "task.abandoned:" + at.TaskID
+		currentlyAbandoned[at.TaskID] = true
+
+		d.mu.Lock()
+		_, exists := d.active[key]
+		d.mu.Unlock()
+
+		if !exists {
+			age := time.Since(at.CreatedAt)
+			details, _ := json.Marshal(map[string]any{
+				"task_id":        at.TaskID,
+				"trace_id":       at.TraceID,
+				"pending_seconds": int(age.Seconds()),
+				"created_at":     at.CreatedAt.Format(time.RFC3339),
+				"confidence":     confidence,
+				"queue_depth":    queueDepth,
+				"dlq_depth":      dlqDepth,
+			})
+			d.emit(ctx, key, "task.abandoned", "warning", "", details, at.ChaosRunID)
+		}
+	}
+
+	// Resolve events for tasks no longer abandoned.
+	d.mu.Lock()
+	var toResolve []string
+	for key := range d.active {
+		if !strings.HasPrefix(key, "task.abandoned:") {
+			continue
+		}
+		taskID := strings.TrimPrefix(key, "task.abandoned:")
+		if !currentlyAbandoned[taskID] {
 			toResolve = append(toResolve, key)
 		}
 	}
@@ -451,7 +538,7 @@ func (d *Detector) detectDLQ(ctx context.Context) {
 			details, _ := json.Marshal(map[string]any{
 				"depth": depth,
 			})
-			d.emit(ctx, key, "dlq.nonempty", "critical", "", details)
+			d.emit(ctx, key, "dlq.nonempty", "critical", "", details, nil)
 		}
 	} else {
 		d.mu.Lock()
@@ -500,9 +587,9 @@ func (d *Detector) getQueueDepth(ctx context.Context, queueURL string) (int, err
 
 // emit creates a new healing event in DB, publishes it to SSE, and registers
 // it in the active dedup map.
-func (d *Detector) emit(ctx context.Context, key, eventType, severity, workerID string, details json.RawMessage) {
+func (d *Detector) emit(ctx context.Context, key, eventType, severity, workerID string, details json.RawMessage, chaosRunID *string) {
 	const source = "watchdog"
-	id, err := d.db.InsertHealingEvent(ctx, eventType, severity, source, workerID, details)
+	id, err := d.db.InsertHealingEvent(ctx, eventType, severity, source, workerID, details, chaosRunID)
 	if err != nil {
 		slog.Error("detector.emit db insert failed",
 			"event_type", eventType,
@@ -511,22 +598,23 @@ func (d *Detector) emit(ctx context.Context, key, eventType, severity, workerID 
 		return
 	}
 
-	sseEvent := publisher.SSEEvent{
-		EventType:      "healing." + eventType,
-		Severity:       severity,
-		Status:         "active",
-		HealingEventID: id,
-		Details:        details,
-	}
-	if err := d.publisher.Publish(ctx, sseEvent); err != nil {
-		slog.Warn("detector.emit sse publish failed",
-			"event_type", eventType,
-			"error", err)
-		// Don't return -- the DB event was created. SSE is best-effort.
+	if chaosRunID == nil {
+		sseEvent := publisher.SSEEvent{
+			EventType:      "healing." + eventType,
+			Severity:       severity,
+			Status:         "active",
+			HealingEventID: id,
+			Details:        details,
+		}
+		if err := d.publisher.Publish(ctx, sseEvent); err != nil {
+			slog.Warn("detector.emit sse publish failed",
+				"event_type", eventType,
+				"error", err)
+		}
 	}
 
 	d.mu.Lock()
-	d.active[key] = activeEntry{eventID: id, eventType: eventType, severity: severity}
+	d.active[key] = activeEntry{eventID: id, eventType: eventType, severity: severity, chaosRunID: chaosRunID}
 	d.mu.Unlock()
 
 	metrics.HealingEventsTotal.WithLabelValues(eventType, severity).Inc()
@@ -558,21 +646,23 @@ func (d *Detector) resolve(ctx context.Context, key string) {
 		return
 	}
 
-	resolvedDetails, _ := json.Marshal(map[string]any{
-		"resolved_key": key,
-	})
+	if entry.chaosRunID == nil {
+		resolvedDetails, _ := json.Marshal(map[string]any{
+			"resolved_key": key,
+		})
 
-	sseEvent := publisher.SSEEvent{
-		EventType:      "healing." + entry.eventType + ".resolved",
-		Severity:       entry.severity,
-		Status:         "resolved",
-		HealingEventID: entry.eventID,
-		Details:        resolvedDetails,
-	}
-	if err := d.publisher.Publish(ctx, sseEvent); err != nil {
-		slog.Warn("detector.resolve sse publish failed",
-			"key", key,
-			"error", err)
+		sseEvent := publisher.SSEEvent{
+			EventType:      "healing." + entry.eventType + ".resolved",
+			Severity:       entry.severity,
+			Status:         "resolved",
+			HealingEventID: entry.eventID,
+			Details:        resolvedDetails,
+		}
+		if err := d.publisher.Publish(ctx, sseEvent); err != nil {
+			slog.Warn("detector.resolve sse publish failed",
+				"key", key,
+				"error", err)
+		}
 	}
 
 	metrics.HealingEventsResolved.WithLabelValues(entry.eventType).Inc()

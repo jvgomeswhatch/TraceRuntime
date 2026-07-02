@@ -51,6 +51,11 @@ var (
 		Help: "Currently stuck tasks.",
 	})
 
+	AbandonedTasks = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "traceruntime_watchdog_abandoned_tasks",
+		Help: "Currently abandoned tasks (pending with no queue message).",
+	})
+
 	HealingEventsResolved = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "traceruntime_watchdog_healing_events_resolved_total",
 		Help: "Total healing events resolved.",

@@ -19,6 +19,7 @@ type Config struct {
 	HealthcheckFailures        int
 	QueueLagThreshold          int
 	TaskStuckSeconds           int
+	TaskAbandonedSeconds       int
 	DLQDeltaThreshold          int
 }
 
@@ -36,6 +37,7 @@ func Load() Config {
 		HealthcheckFailures:        envInt("WATCHDOG_HEALTHCHECK_FAILURES", 3),
 		QueueLagThreshold:          envInt("WATCHDOG_QUEUE_LAG_THRESHOLD", 50),
 		TaskStuckSeconds:           envInt("WATCHDOG_TASK_STUCK_SECONDS", 300),
+		TaskAbandonedSeconds:       envInt("WATCHDOG_TASK_ABANDONED_SECONDS", 120),
 		DLQDeltaThreshold:          envInt("WATCHDOG_DLQ_DELTA_THRESHOLD", 1),
 	}
 
@@ -62,6 +64,10 @@ func Load() Config {
 	}
 	if cfg.TaskStuckSeconds < 30 {
 		slog.Error("config validation failed: TaskStuckSeconds must be >= 30", "value", cfg.TaskStuckSeconds)
+		valid = false
+	}
+	if cfg.TaskAbandonedSeconds < 30 {
+		slog.Error("config validation failed: TaskAbandonedSeconds must be >= 30", "value", cfg.TaskAbandonedSeconds)
 		valid = false
 	}
 	if cfg.DLQDeltaThreshold < 1 {

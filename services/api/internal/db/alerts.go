@@ -37,7 +37,13 @@ func (d *DB) ListAlerts(ctx context.Context, params AlertListParams) ([]Alert, s
 	                 details, created_at, resolved_at,
 	                 EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - created_at))
 	          FROM healing_events
-	          WHERE ($1 = 'all' OR status = $1)
+	          WHERE chaos_run_id IS NULL
+	            AND NOT EXISTS (
+	              SELECT 1 FROM chaos_runs
+	              WHERE status IN ('running','completed')
+	                AND healing_events.created_at BETWEEN started_at AND COALESCE(completed_at, NOW())
+	            )
+	            AND ($1 = 'all' OR status = $1)
 	            AND ($2 = '' OR severity = $2)
 	            AND ($3 = '' OR event_type = $3)
 	            AND ($4 = '' OR created_at < $4::timestamptz)
@@ -107,7 +113,13 @@ func (d *DB) AlertStats(ctx context.Context) (*AlertStats, map[string]AlertTypeS
 		   COUNT(*) FILTER (WHERE status = 'resolved' AND resolved_at > NOW() - INTERVAL '24 hours'),
 		   COUNT(*) FILTER (WHERE severity = 'critical' AND status = 'active'),
 		   AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))) FILTER (WHERE status = 'resolved' AND resolved_at IS NOT NULL)
-		 FROM healing_events`).Scan(&stats.Active, &stats.Acknowledged, &stats.Resolved24h, &stats.CriticalActive, &avgRes)
+		 FROM healing_events
+		 WHERE chaos_run_id IS NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM chaos_runs
+		     WHERE status IN ('running','completed')
+		       AND healing_events.created_at BETWEEN started_at AND COALESCE(completed_at, NOW())
+		   )`).Scan(&stats.Active, &stats.Acknowledged, &stats.Resolved24h, &stats.CriticalActive, &avgRes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("db.AlertStats: %w", err)
 	}
@@ -120,6 +132,12 @@ func (d *DB) AlertStats(ctx context.Context) (*AlertStats, map[string]AlertTypeS
 		   COUNT(*) FILTER (WHERE status = 'active'),
 		   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')
 		 FROM healing_events
+		 WHERE chaos_run_id IS NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM chaos_runs
+		     WHERE status IN ('running','completed')
+		       AND healing_events.created_at BETWEEN started_at AND COALESCE(completed_at, NOW())
+		   )
 		 GROUP BY event_type`)
 	if err != nil {
 		return nil, nil, fmt.Errorf("db.AlertStats by_type: %w", err)
