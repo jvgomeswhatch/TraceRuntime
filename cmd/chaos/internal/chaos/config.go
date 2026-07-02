@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -21,16 +20,13 @@ type Config struct {
 	GlobalTimeout time.Duration
 	PollInterval  time.Duration
 	Scenario      string
-	List          string
+	List          bool
 	RunID         string
 }
 
 func (c Config) ScenarioFilter() []string {
 	if c.Scenario != "" {
 		return []string{c.Scenario}
-	}
-	if c.List != "" {
-		return strings.Split(c.List, ",")
 	}
 	return nil
 }
@@ -50,7 +46,7 @@ func ParseConfig() Config {
 	flag.DurationVar(&cfg.GlobalTimeout, "timeout", parseDurationOrDefault("CHAOS_TIMEOUT", 45*time.Minute), "Global suite timeout")
 	flag.DurationVar(&cfg.PollInterval, "poll-interval", parseDurationOrDefault("CHAOS_POLL_INTERVAL", 2*time.Second), "Default polling interval")
 	flag.StringVar(&cfg.Scenario, "scenario", "", "Run a single scenario by name")
-	flag.StringVar(&cfg.List, "list", "", "Comma-separated list of scenarios to run")
+	flag.BoolVar(&cfg.List, "list", false, "List available scenarios and exit")
 	flag.StringVar(&cfg.RunID, "run-id", "", "Run ID from trigger (correlates report with request)")
 
 	flag.Parse()

@@ -1,35 +1,38 @@
+SHELL := /bin/bash
+
 # ── Config ────────────────────────────────────────────────────────────────────
 LOCALSTACK_ENDPOINT   ?= http://localhost:4566
 HEALTH_API_URL        ?= http://localhost:8082/health
 HEALTH_WORKER_METRICS ?= http://localhost:9091/metrics
 HEALTH_LOCALSTACK_URL ?= http://localhost:4566/_localstack/health
+TERRAFORM             ?= $(shell which terraform 2>/dev/null || echo /c/terraform/terraform.exe)
 
 # ── Terraform ─────────────────────────────────────────────────────────────────
 .PHONY: infra-init infra-plan infra-apply infra-destroy infra-bootstrap infra-fmt infra-validate infra-smoke
 
 infra-init:
-	cd infra/terraform && terraform init -input=false
+	cd infra/terraform && $(TERRAFORM) init -input=false
 
 infra-plan: infra-init
-	cd infra/terraform && terraform plan
+	cd infra/terraform && $(TERRAFORM) plan
 
 infra-apply: infra-init
-	cd infra/terraform && terraform apply -auto-approve
+	cd infra/terraform && $(TERRAFORM) apply -auto-approve
 
 infra-destroy: infra-init
-	cd infra/terraform && terraform destroy -auto-approve
+	cd infra/terraform && $(TERRAFORM) destroy -auto-approve
 
 infra-fmt:
-	cd infra/terraform && terraform fmt -recursive
+	cd infra/terraform && $(TERRAFORM) fmt -recursive
 
 infra-validate: infra-init
-	cd infra/terraform && terraform validate
+	cd infra/terraform && $(TERRAFORM) validate
 
 infra-bootstrap:
 	./scripts/bootstrap.sh
 
 infra-smoke:
-	./scripts/smoke-test.sh
+	/bin/bash scripts/smoke-test.sh
 
 # ── Environment ────────────────────────────────────────────────────────────────
 .PHONY: bootstrap up down restart reset
@@ -123,8 +126,8 @@ lint-go:
 	cd services/watchdog && golangci-lint run ./...
 
 lint-terraform:
-	cd infra/terraform && terraform fmt -check -recursive
-	cd infra/terraform && terraform validate
+	cd infra/terraform && $(TERRAFORM) fmt -check -recursive
+	cd infra/terraform && $(TERRAFORM) validate
 
 lint-python:
 	cd ai-runtime && ruff check .
@@ -135,7 +138,7 @@ lint-frontend:
 
 fmt:
 	gofmt -w .
-	cd infra/terraform && terraform fmt -recursive
+	cd infra/terraform && $(TERRAFORM) fmt -recursive
 
 # ── Load Testing ──────────────────────────────────────────────────────────────
 .PHONY: loadtest
@@ -192,12 +195,16 @@ chaos-reset:
 	$(MAKE) bootstrap
 
 chaos:
+ifdef LIST
+	cd cmd/chaos && go run . --list
+else
 	@docker compose ps --format '{{.Service}}' | head -1 > /dev/null 2>&1 || \
 		(echo "ERROR: services not running. Run 'make chaos-up' first." && exit 1)
 	@test -f .chaos.token || (echo "ERROR: .chaos.token not found. Run 'make chaos-up' first." && exit 1)
-	$(eval CHAOS_RUN_ID := $(or $(RUN_ID),$(shell ls -t results/chaos-requests/chaos-*.json 2>/dev/null | head -1 | xargs -r basename 2>/dev/null | sed 's/\.json$$//')))
+	$(eval CHAOS_SCENARIO := $(or $(SCENARIO),all))
+	$(eval CHAOS_RUN_ID := $(or $(RUN_ID),chaos-$(CHAOS_SCENARIO)-$(shell date +%Y%m%d-%H%M%S)))
 	cd cmd/chaos && INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
 		--output-dir=../../$(or $(OUTPUT_DIR),results) \
 		$(if $(SCENARIO),--scenario=$(SCENARIO),) \
-		$(if $(LIST),--list=$(LIST),) \
-		$(if $(CHAOS_RUN_ID),--run-id=$(CHAOS_RUN_ID),)
+		--run-id=$(CHAOS_RUN_ID)
+endif

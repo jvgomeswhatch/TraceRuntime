@@ -31,6 +31,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cfg.List {
+		fmt.Println("Available chaos scenarios:")
+		for _, s := range []chaos.Scenario{
+			scenarios.NewQueueFlood(),
+			scenarios.NewPostgresFailure(),
+			scenarios.NewWorkerCrash(),
+			scenarios.NewRuntimeHang(),
+			scenarios.NewAIFailure(),
+			scenarios.NewSlowInference(),
+		} {
+			fmt.Printf("  - %s\n", s.Name())
+		}
+		return
+	}
+
 	slog.Info("chaos runner configured",
 		"api_url", cfg.APIURL,
 		"ai_runtime_url", cfg.AIRuntimeURL,
@@ -38,7 +53,6 @@ func main() {
 		"output_dir", cfg.OutputDir,
 		"timeout", cfg.GlobalTimeout,
 		"scenario", cfg.Scenario,
-		"list", cfg.List,
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -106,8 +120,6 @@ func run(ctx context.Context, cfg chaos.Config) error {
 	scenarioLabel := "all"
 	if cfg.Scenario != "" {
 		scenarioLabel = cfg.Scenario
-	} else if cfg.List != "" {
-		scenarioLabel = cfg.List
 	}
 
 	chaosRunDBID, err := chaosDB.Insert(ctx, runID, scenarioLabel, chaos.GitCommit(), "local-docker")

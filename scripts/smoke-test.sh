@@ -82,7 +82,7 @@ REDRIVE=$(aws --endpoint-url="$ENDPOINT" --region="$REGION" \
   --attribute-names RedrivePolicy \
   --query 'Attributes.RedrivePolicy' \
   --output text 2>/dev/null)
-MRC=$(echo "$REDRIVE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('maxReceiveCount','')))" 2>/dev/null || echo "")
+MRC=$(echo "$REDRIVE" | python -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('maxReceiveCount','')))" 2>/dev/null || echo "")
 if [ "$MRC" = "3" ]; then
   ok "maxReceiveCount = 3"
 else
@@ -91,7 +91,7 @@ fi
 
 # 7. redrive policy points to correct DLQ ARN
 DLQ_ARN_EXPECTED="arn:aws:sqs:${REGION}:${ACCOUNT}:traceruntime-tasks-dlq"
-DLQ_ARN_ACTUAL=$(echo "$REDRIVE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('deadLetterTargetArn',''))" 2>/dev/null || echo "")
+DLQ_ARN_ACTUAL=$(echo "$REDRIVE" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('deadLetterTargetArn',''))" 2>/dev/null || echo "")
 if [ "$DLQ_ARN_ACTUAL" = "$DLQ_ARN_EXPECTED" ]; then
   ok "redrive policy configured correctly"
 else
