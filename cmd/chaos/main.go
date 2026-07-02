@@ -75,6 +75,7 @@ func run(ctx context.Context, cfg chaos.Config) error {
 	})
 
 	chk := checker.New(pool, dc, sqsClient, cfg.APIURL, cfg.WorkerURL, cfg.AIRuntimeURL, cfg.SQSQueueURL, cfg.SQSDlqURL)
+	chaosDB := chaos.NewChaosRunDB(pool)
 
 	requiredContainers := []string{"api", "worker", "watchdog", "postgres", "localstack"}
 	if cfg.InternalToken != "" {
@@ -88,23 +89,42 @@ func run(ctx context.Context, cfg chaos.Config) error {
 	slog.Info("preflight passed")
 
 	allScenarios := []chaos.Scenario{
-		&scenarios.QueueFlood{},
-		&scenarios.SlowInference{},
-		&scenarios.AIFailure{},
-		&scenarios.RuntimeHang{},
-		&scenarios.WorkerCrash{},
-		&scenarios.PostgresFailure{},
+		scenarios.NewQueueFlood(),
+		scenarios.NewPostgresFailure(),
+		scenarios.NewWorkerCrash(),
+		scenarios.NewRuntimeHang(),
+		scenarios.NewAIFailure(),
+		scenarios.NewSlowInference(),
 	}
 
 	runner := chaos.NewRunner(cfg, allScenarios)
-	sc := &chaos.ScenarioContext{
-		RunID:   fmt.Sprintf("chaos-%s", time.Now().Format("20060102-150405")),
-		Config:  cfg,
-		Checker: chk,
-		Docker:  dc,
+	runID := cfg.RunID
+	if runID == "" {
+		runID = fmt.Sprintf("chaos-%s", time.Now().Format("20060102-150405"))
 	}
 
-	suite, err := runner.Run(ctx, sc)
+	scenarioLabel := "all"
+	if cfg.Scenario != "" {
+		scenarioLabel = cfg.Scenario
+	} else if cfg.List != "" {
+		scenarioLabel = cfg.List
+	}
+
+	chaosRunDBID, err := chaosDB.Insert(ctx, runID, scenarioLabel, chaos.GitCommit(), "local-docker")
+	if err != nil {
+		return fmt.Errorf("register chaos run: %w", err)
+	}
+	slog.Info("chaos run registered", "run_id", runID, "db_id", chaosRunDBID)
+
+	sc := &chaos.ScenarioContext{
+		RunID:        runID,
+		ChaosRunDBID: chaosRunDBID,
+		Config:       cfg,
+		Checker:      chk,
+		Docker:       dc,
+	}
+
+	suite, err := runner.Run(ctx, sc, chaosDB)
 	if err != nil {
 		return err
 	}

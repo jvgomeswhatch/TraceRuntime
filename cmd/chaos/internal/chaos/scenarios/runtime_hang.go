@@ -33,8 +33,39 @@ func (s *RuntimeHang) Setup(ctx context.Context, sc *chaos.ScenarioContext) erro
 	if err != nil {
 		return fmt.Errorf("health check: %w", err)
 	}
+
 	if !healthy {
-		return fmt.Errorf("not all containers healthy")
+		slog.Info("runtime-hang: setup — attempting ai-runtime recovery via stop+start")
+		_ = sc.Docker.Stop(ctx, "ai-runtime")
+		time.Sleep(2 * time.Second)
+		if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
+			slog.Warn("runtime-hang: setup start ai-runtime", "error", startErr)
+		}
+		if waitErr := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 240*time.Second); waitErr != nil {
+			return fmt.Errorf("ai-runtime recovery failed: %w", waitErr)
+		}
+		healthy, err = sc.Checker.AllContainersHealthy(ctx, required)
+		if err != nil || !healthy {
+			return fmt.Errorf("not all containers healthy after ai-runtime recovery")
+		}
+	}
+
+	drainResult, err := sc.Checker.WaitFor(ctx, checker.WaitCondition{
+		Name: "queue-empty-before-inject",
+		Check: func(ctx context.Context) (bool, error) {
+			depth, err := sc.Checker.QueueDepth(ctx)
+			if err != nil {
+				return false, err
+			}
+			return depth == 0, nil
+		},
+		Timeout:  60 * time.Second,
+		Interval: 3 * time.Second,
+	})
+	if err != nil {
+		slog.Warn("runtime-hang: setup queue drain error", "error", err)
+	} else if !drainResult.Met {
+		slog.Warn("runtime-hang: setup queue not empty after 60s, proceeding anyway")
 	}
 
 	slog.Info("runtime-hang: setup complete — all containers healthy")
@@ -44,7 +75,7 @@ func (s *RuntimeHang) Setup(ctx context.Context, sc *chaos.ScenarioContext) erro
 func (s *RuntimeHang) Inject(ctx context.Context, sc *chaos.ScenarioContext) error {
 	slog.Info("runtime-hang: inject — submitting task")
 
-	taskID, err := submitTask(sc.Config.APIURL, "chaos-runtime-hang-test")
+	taskID, err := submitTaskWithRunID(sc.Config.APIURL, "chaos-runtime-hang-test", sc.ChaosRunDBID)
 	if err != nil {
 		return fmt.Errorf("submit task: %w", err)
 	}
@@ -61,14 +92,14 @@ func (s *RuntimeHang) Inject(ctx context.Context, sc *chaos.ScenarioContext) err
 			}
 			return status == "processing", nil
 		},
-		Timeout:  30 * time.Second,
+		Timeout:  90 * time.Second,
 		Interval: 2 * time.Second,
 	})
 	if err != nil {
 		return fmt.Errorf("wait for processing: %w", err)
 	}
 	if !result.Met {
-		return fmt.Errorf("task %s did not reach processing within 30s", s.taskID)
+		return fmt.Errorf("task %s did not reach processing within 90s", s.taskID)
 	}
 	slog.Info("runtime-hang: task is processing", "task_id", s.taskID, "elapsed", result.Elapsed)
 
@@ -180,23 +211,41 @@ func (s *RuntimeHang) Validate(ctx context.Context, sc *chaos.ScenarioContext, o
 }
 
 func (s *RuntimeHang) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) error {
-	slog.Info("runtime-hang: cleanup — unpausing ai-runtime")
+	slog.Info("runtime-hang: cleanup — restoring ai-runtime")
 
-	// Unpause ai-runtime; if that fails, try Start
-	if err := sc.Docker.Unpause(ctx, "ai-runtime"); err != nil {
-		slog.Warn("runtime-hang: unpause failed, attempting start", "error", err)
-		if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
-			slog.Error("runtime-hang: start also failed", "error", startErr)
-			return fmt.Errorf("unpause: %w, start: %w", err, startErr)
+	paused, err := sc.Docker.IsPaused(ctx, "ai-runtime")
+	if err != nil {
+		slog.Warn("runtime-hang: could not check pause state", "error", err)
+	}
+
+	if paused {
+		if err := sc.Docker.Unpause(ctx, "ai-runtime"); err != nil {
+			slog.Warn("runtime-hang: unpause failed, attempting start", "error", err)
+			if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
+				slog.Error("runtime-hang: start also failed", "error", startErr)
+				return fmt.Errorf("unpause: %w, start: %w", err, startErr)
+			}
+		}
+	} else {
+		status, _ := sc.Docker.Health(ctx, "ai-runtime")
+		if status != docker.HealthHealthy {
+			slog.Info("runtime-hang: ai-runtime not paused but unhealthy, starting", "status", status)
+			if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
+				slog.Warn("runtime-hang: start failed", "error", startErr)
+			}
 		}
 	}
 
-	// Wait for ai-runtime to become healthy
-	if err := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 60*time.Second); err != nil {
-		slog.Warn("runtime-hang: ai-runtime did not become healthy", "error", err)
+	if err := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 120*time.Second); err != nil {
+		slog.Warn("runtime-hang: cleanup — first wait failed, trying stop+start", "error", err)
+		_ = sc.Docker.Stop(ctx, "ai-runtime")
+		time.Sleep(3 * time.Second)
+		_ = sc.Docker.Start(ctx, "ai-runtime")
+		if err := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 120*time.Second); err != nil {
+			return fmt.Errorf("ai-runtime did not become healthy after stop+start: %w", err)
+		}
 	}
 
-	// Wait for queue to drain
 	drainResult, err := sc.Checker.WaitFor(ctx, checker.WaitCondition{
 		Name: "queue-drain",
 		Check: func(ctx context.Context) (bool, error) {

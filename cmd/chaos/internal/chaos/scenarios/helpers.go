@@ -13,15 +13,26 @@ import (
 	"github.com/runtime-platform/cmd/chaos/internal/chaos/checker"
 )
 
-// submitTask sends a POST /tasks request and returns the created task_id.
-func submitTask(apiURL, input string) (string, error) {
+// submitTaskWithRunID sends a POST /tasks request and returns the created task_id.
+// When chaosRunDBID is non-empty, it is sent as X-Chaos-Run-Id header so the
+// API can associate the task with a chaos run.
+func submitTaskWithRunID(apiURL, input, chaosRunDBID string) (string, error) {
 	body, err := json.Marshal(map[string]string{"input": input})
 	if err != nil {
 		return "", fmt.Errorf("marshal task input: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(apiURL+"/tasks", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, apiURL+"/tasks", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create task request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if chaosRunDBID != "" {
+		req.Header.Set("X-Chaos-Run-Id", chaosRunDBID)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("post task: %w", err)
 	}
@@ -75,6 +86,38 @@ func timingSLO(actual, maxExpected float64) chaos.SLOStatus {
 	return chaos.SLOFail
 }
 
+// RestartBaseline captures container restart counts so scenarios can compute
+// deltas instead of comparing against absolute zero (Docker RestartCount is
+// cumulative since container creation).
+type RestartBaseline struct {
+	counts map[string]int
+}
+
+func CaptureRestartBaseline(ctx context.Context, sc *chaos.ScenarioContext, services []string) (*RestartBaseline, error) {
+	b := &RestartBaseline{counts: make(map[string]int, len(services))}
+	for _, svc := range services {
+		count, err := sc.Checker.ContainerRestartCount(ctx, svc)
+		if err != nil {
+			return nil, fmt.Errorf("baseline restart count for %s: %w", svc, err)
+		}
+		b.counts[svc] = count
+		slog.Info("restart baseline", "service", svc, "count", count)
+	}
+	return b, nil
+}
+
+func (b *RestartBaseline) Delta(ctx context.Context, sc *chaos.ScenarioContext, svc string) (int, error) {
+	current, err := sc.Checker.ContainerRestartCount(ctx, svc)
+	if err != nil {
+		return -1, err
+	}
+	baseline, ok := b.counts[svc]
+	if !ok {
+		return current, nil
+	}
+	return current - baseline, nil
+}
+
 // stabilizeSystem brings the system to a clean state after a chaos scenario.
 // Every Cleanup() should call this as the final step to ensure the next
 // scenario starts from a deterministic baseline.
@@ -84,6 +127,13 @@ func stabilizeSystem(ctx context.Context, scenario string, sc *chaos.ScenarioCon
 		slog.Warn(scenario+": cleanup fail stuck tasks", "error", err)
 	} else if failed > 0 {
 		slog.Info(scenario+": cleanup failed stuck tasks", "count", failed)
+	}
+
+	// 1b. Fail any tasks abandoned in pending (never picked up by worker).
+	if failed, err := sc.Checker.FailAbandonedTasks(ctx, scenario+"-cleanup"); err != nil {
+		slog.Warn(scenario+": cleanup fail abandoned tasks", "error", err)
+	} else if failed > 0 {
+		slog.Info(scenario+": cleanup failed abandoned tasks", "count", failed)
 	}
 
 	// 2. Purge DLQ (messages from failed/retried tasks).

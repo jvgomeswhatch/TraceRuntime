@@ -89,7 +89,7 @@ func (s *WorkerCrash) Setup(ctx context.Context, sc *chaos.ScenarioContext) erro
 	)
 
 	slog.Info("worker-crash: setup — state clean, submitting task")
-	taskID, err := submitTask(sc.Config.APIURL, "chaos-worker-crash-test")
+	taskID, err := submitTaskWithRunID(sc.Config.APIURL, "chaos-worker-crash-test", sc.ChaosRunDBID)
 	if err != nil {
 		return fmt.Errorf("submit task: %w", err)
 	}

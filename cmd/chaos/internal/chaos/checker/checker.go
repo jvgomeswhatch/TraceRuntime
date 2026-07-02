@@ -101,6 +101,26 @@ func (c *Checker) HealingEventsSince(ctx context.Context, since time.Time) ([]He
 	return events, rows.Err()
 }
 
+func (c *Checker) HealingEventsByRunID(ctx context.Context, chaosRunID string) ([]HealingEvent, error) {
+	rows, err := c.db.Query(ctx,
+		`SELECT id::text, event_type, severity, source, status, COALESCE(worker_id, ''), details, created_at, resolved_at
+		 FROM healing_events WHERE chaos_run_id = $1::uuid ORDER BY created_at ASC`, chaosRunID)
+	if err != nil {
+		return nil, fmt.Errorf("query healing events by run id: %w", err)
+	}
+	defer rows.Close()
+
+	var events []HealingEvent
+	for rows.Next() {
+		var e HealingEvent
+		if err := rows.Scan(&e.ID, &e.EventType, &e.Severity, &e.Source, &e.Status, &e.WorkerID, &e.Details, &e.CreatedAt, &e.ResolvedAt); err != nil {
+			return nil, fmt.Errorf("scan healing event: %w", err)
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
 func (c *Checker) TaskStatus(ctx context.Context, taskID string) (string, error) {
 	var status string
 	err := c.db.QueryRow(ctx, `SELECT status FROM tasks WHERE id = $1::uuid`, taskID).Scan(&status)
@@ -235,14 +255,31 @@ func (c *Checker) PurgeDLQ(ctx context.Context) error {
 	return err
 }
 
+// FailStuckTasks and FailAbandonedTasks identify chaos tasks via the "chaos-" prefix
+// in input_payload. The Chaos Runner executes scenarios sequentially, so this criterion
+// is sufficient. If parallel scenario execution is supported in the future, replace this
+// with an explicit identifier (run_id or task_origin column).
+
 func (c *Checker) FailStuckTasks(ctx context.Context, reason string) (int64, error) {
 	tag, err := c.db.Exec(ctx,
 		`UPDATE tasks SET status = 'failed', completed_at = NOW(), error_message = $1, updated_at = NOW()
-		 WHERE status = 'processing'`,
+		 WHERE status = 'processing' AND input_payload LIKE 'chaos-%'`,
 		reason,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("fail stuck tasks: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (c *Checker) FailAbandonedTasks(ctx context.Context, reason string) (int64, error) {
+	tag, err := c.db.Exec(ctx,
+		`UPDATE tasks SET status = 'failed', completed_at = NOW(), error_message = $1, updated_at = NOW()
+		 WHERE status = 'pending' AND processing_started_at IS NULL AND input_payload LIKE 'chaos-%'`,
+		reason,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("fail abandoned tasks: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }

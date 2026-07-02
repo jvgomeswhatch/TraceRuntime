@@ -31,7 +31,6 @@ func (s *SlowInference) Timeout() time.Duration  { return slowInferenceTimeout }
 func (s *SlowInference) Setup(ctx context.Context, sc *chaos.ScenarioContext) error {
 	slog.Info("slow-inference: setup — verifying system baseline")
 
-	// All containers healthy, including ai-runtime.
 	containers := []string{"api", "worker", "watchdog", "ai-runtime"}
 	for _, c := range containers {
 		status, err := sc.Checker.ContainerHealth(ctx, c)
@@ -39,6 +38,17 @@ func (s *SlowInference) Setup(ctx context.Context, sc *chaos.ScenarioContext) er
 			return fmt.Errorf("container health %s: %w", c, err)
 		}
 		if status != docker.HealthHealthy {
+			if c == "ai-runtime" {
+				slog.Info("slow-inference: setup — attempting ai-runtime recovery", "current_status", status)
+				if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
+					slog.Warn("slow-inference: setup start ai-runtime", "error", startErr)
+				}
+				if waitErr := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 120*time.Second); waitErr != nil {
+					return fmt.Errorf("ai-runtime recovery failed: %w", waitErr)
+				}
+				slog.Info("slow-inference: setup — ai-runtime recovered")
+				continue
+			}
 			return fmt.Errorf("container %s is %s, expected healthy", c, status)
 		}
 	}
@@ -64,7 +74,7 @@ func (s *SlowInference) Inject(ctx context.Context, sc *chaos.ScenarioContext) e
 	s.taskIDs = nil
 	for i := 0; i < slowInferenceTaskQty; i++ {
 		input := fmt.Sprintf("chaos-slow-inference-task-%d", i+1)
-		taskID, err := submitTask(sc.Config.APIURL, input)
+		taskID, err := submitTaskWithRunID(sc.Config.APIURL, input, sc.ChaosRunDBID)
 		if err != nil {
 			return fmt.Errorf("submit task %d: %w", i+1, err)
 		}

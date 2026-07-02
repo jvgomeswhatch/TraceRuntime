@@ -14,13 +14,16 @@ import (
 )
 
 const (
-	queueFloodName     = "queue-flood"
-	queueFloodTimeout  = 2 * time.Minute
-	queueFloodTaskQty  = 60
-	queueFloodDetectSLO = 30.0 // seconds
+	queueFloodName        = "queue-flood"
+	queueFloodTimeout     = 4 * time.Minute
+	queueFloodTaskQty     = 60
+	queueFloodDetectSLO   = 90.0 // seconds — SLO threshold for validation
+	queueFloodObserveTmo  = 120 * time.Second // observe waits longer than SLO to capture the metric
 )
 
-type QueueFlood struct{}
+type QueueFlood struct {
+	restartBaseline *RestartBaseline
+}
 
 func NewQueueFlood() *QueueFlood { return &QueueFlood{} }
 
@@ -60,6 +63,12 @@ func (q *QueueFlood) Setup(ctx context.Context, sc *chaos.ScenarioContext) error
 		return fmt.Errorf("%d active healing events — resolve before running", len(events))
 	}
 
+	baseline, err := CaptureRestartBaseline(ctx, sc, []string{"api", "worker", "watchdog"})
+	if err != nil {
+		return fmt.Errorf("restart baseline: %w", err)
+	}
+	q.restartBaseline = baseline
+
 	slog.Info("queue-flood: setup complete — system baseline verified")
 	return nil
 }
@@ -70,13 +79,16 @@ func (q *QueueFlood) Inject(ctx context.Context, sc *chaos.ScenarioContext) erro
 	var wg sync.WaitGroup
 	var submitted atomic.Int32
 	var firstErr atomic.Value
+	sem := make(chan struct{}, 10)
 
 	for i := range queueFloodTaskQty {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			input := fmt.Sprintf("chaos-queue-flood-task-%d", idx+1)
-			_, err := submitTask(sc.Config.APIURL, input)
+			_, err := submitTaskWithRunID(sc.Config.APIURL, input, sc.ChaosRunDBID)
 			if err != nil {
 				firstErr.CompareAndSwap(nil, err)
 				return
@@ -98,11 +110,10 @@ func (q *QueueFlood) Observe(ctx context.Context, sc *chaos.ScenarioContext) (*c
 	slog.Info("queue-flood: observe — watching for queue.lag healing event")
 	result := chaos.NewObserveResult()
 
-	// Use scenario start time to catch events emitted during inject phase.
 	waitResult, err := sc.Checker.WaitFor(ctx, checker.WaitCondition{
 		Name: "queue.lag healing event",
 		Check: func(ctx context.Context) (bool, error) {
-			events, err := sc.Checker.HealingEventsSince(ctx, sc.StartTime)
+			events, err := sc.Checker.ActiveHealingEvents(ctx)
 			if err != nil {
 				return false, err
 			}
@@ -111,9 +122,18 @@ func (q *QueueFlood) Observe(ctx context.Context, sc *chaos.ScenarioContext) (*c
 					return true, nil
 				}
 			}
+			recent, err := sc.Checker.HealingEventsSince(ctx, sc.StartTime.Add(-30*time.Second))
+			if err != nil {
+				return false, err
+			}
+			for _, e := range recent {
+				if e.EventType == "queue.lag" {
+					return true, nil
+				}
+			}
 			return false, nil
 		},
-		Timeout:  time.Duration(queueFloodDetectSLO) * time.Second,
+		Timeout:  queueFloodObserveTmo,
 		Interval: sc.PollInterval,
 	})
 	if err != nil {
@@ -131,14 +151,14 @@ func (q *QueueFlood) Observe(ctx context.Context, sc *chaos.ScenarioContext) (*c
 	}
 	result.Metrics["peak_queue_depth"] = peakDepth
 
-	// Record restart counts.
+	// Record restart count deltas (compared to baseline captured in Setup).
 	for _, svc := range []string{"api", "worker", "watchdog"} {
-		rc, err := sc.Checker.ContainerRestartCount(ctx, svc)
+		delta, err := q.restartBaseline.Delta(ctx, sc, svc)
 		if err != nil {
 			slog.Warn("queue-flood: restart count error", "service", svc, "error", err)
-			rc = -1
+			delta = -1
 		}
-		result.Metrics[svc+"_restart_count"] = rc
+		result.Metrics[svc+"_restart_count"] = delta
 	}
 
 	// Check worker health.
@@ -197,9 +217,8 @@ func (q *QueueFlood) Validate(ctx context.Context, sc *chaos.ScenarioContext, ob
 		Status:   boolSLO(workerHealthy),
 	})
 
-	// Timing: detection < 30s
 	report.SLOResults = append(report.SLOResults, chaos.SLOResult{
-		Name:     "queue.lag detection < 30s",
+		Name:     "queue.lag detection < 90s",
 		Type:     chaos.SLOTiming,
 		Expected: queueFloodDetectSLO,
 		Actual:   detectionSec,

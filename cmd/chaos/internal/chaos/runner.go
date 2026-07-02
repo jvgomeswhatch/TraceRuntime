@@ -28,11 +28,13 @@ func NewRunner(cfg Config, scenarios []Scenario) *Runner {
 	return &Runner{cfg: cfg, scenarios: scenarios}
 }
 
-func (r *Runner) Run(ctx context.Context, sc *ScenarioContext) (*SuiteReport, error) {
+func (r *Runner) Run(ctx context.Context, sc *ScenarioContext, chaosDB *ChaosRunDB) (*SuiteReport, error) {
+	runID := sc.RunID
+
 	suite := &SuiteReport{
 		Version:     "1.0",
-		RunID:       fmt.Sprintf("chaos-%s", time.Now().Format("20060102-150405")),
-		GitCommit:   gitCommit(),
+		RunID:       runID,
+		GitCommit:   GitCommit(),
 		Environment: "local-docker",
 		Timestamp:   time.Now(),
 	}
@@ -44,6 +46,10 @@ func (r *Runner) Run(ctx context.Context, sc *ScenarioContext) (*SuiteReport, er
 
 	if len(scenarios) == 0 {
 		return nil, fmt.Errorf("no scenarios to run (filter: %v, available: %v)", filter, r.scenarioNames())
+	}
+
+	if err := chaosDB.SetRunning(ctx, sc.ChaosRunDBID); err != nil {
+		slog.Warn("failed to set chaos run to running", "error", err)
 	}
 
 	slog.Info("chaos suite starting", "scenarios", len(scenarios), "timeout", r.cfg.GlobalTimeout)
@@ -70,8 +76,14 @@ func (r *Runner) Run(ctx context.Context, sc *ScenarioContext) (*SuiteReport, er
 	suite.DurationSeconds = time.Since(suiteStart).Seconds()
 	suite.ComputeSummary()
 
-	ts := time.Now().Format("20060102-150405")
-	if err := WriteReport(r.cfg.OutputDir, fmt.Sprintf("chaos-suite-%s.json", ts), suite); err != nil {
+	if err := chaosDB.SetCompleted(ctx, sc.ChaosRunDBID,
+		suite.Summary.Passed, suite.Summary.Warned, suite.Summary.Failed,
+		suite.Summary.Total, suite.DurationSeconds); err != nil {
+		slog.Warn("failed to update chaos run completion", "error", err)
+	}
+
+	filename := fmt.Sprintf("chaos-suite-%s.json", runID)
+	if err := WriteReport(r.cfg.OutputDir, filename, suite); err != nil {
 		slog.Error("failed to write suite report", "error", err)
 	}
 
@@ -205,7 +217,7 @@ func stageStatus(err error) string {
 	return "ok"
 }
 
-func gitCommit() string {
+func GitCommit() string {
 	out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
 	if err != nil {
 		return "unknown"

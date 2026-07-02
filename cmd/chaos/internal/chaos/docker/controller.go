@@ -99,6 +99,15 @@ func (c *Controller) Unpause(ctx context.Context, service string) error {
 	})
 }
 
+func (c *Controller) IsPaused(ctx context.Context, service string) (bool, error) {
+	name := c.resolveContainerName(ctx, service)
+	info, err := c.client.ContainerInspect(ctx, name)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", name, err)
+	}
+	return info.State.Paused, nil
+}
+
 func (c *Controller) Health(ctx context.Context, service string) (HealthStatus, error) {
 	name := c.resolveContainerName(ctx, service)
 	info, err := c.client.ContainerInspect(ctx, name)

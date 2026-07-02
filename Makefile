@@ -195,7 +195,9 @@ chaos:
 	@docker compose ps --format '{{.Service}}' | head -1 > /dev/null 2>&1 || \
 		(echo "ERROR: services not running. Run 'make chaos-up' first." && exit 1)
 	@test -f .chaos.token || (echo "ERROR: .chaos.token not found. Run 'make chaos-up' first." && exit 1)
+	$(eval CHAOS_RUN_ID := $(or $(RUN_ID),$(shell ls -t results/chaos-requests/chaos-*.json 2>/dev/null | head -1 | xargs -r basename 2>/dev/null | sed 's/\.json$$//')))
 	cd cmd/chaos && INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
 		--output-dir=../../$(or $(OUTPUT_DIR),results) \
 		$(if $(SCENARIO),--scenario=$(SCENARIO),) \
-		$(if $(LIST),--list=$(LIST),)
+		$(if $(LIST),--list=$(LIST),) \
+		$(if $(CHAOS_RUN_ID),--run-id=$(CHAOS_RUN_ID),)

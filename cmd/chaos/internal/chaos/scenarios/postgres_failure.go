@@ -15,7 +15,9 @@ import (
 // PostgresFailure stops PostgreSQL and validates that API and worker degrade
 // gracefully without crashing, then verifies automatic pool reconnection
 // after restart.
-type PostgresFailure struct{}
+type PostgresFailure struct {
+	restartBaseline *RestartBaseline
+}
 
 func NewPostgresFailure() *PostgresFailure {
 	return &PostgresFailure{}
@@ -35,6 +37,12 @@ func (s *PostgresFailure) Setup(ctx context.Context, sc *chaos.ScenarioContext) 
 	if !healthy {
 		return fmt.Errorf("not all containers healthy")
 	}
+
+	baseline, err := CaptureRestartBaseline(ctx, sc, []string{"api", "worker", "watchdog"})
+	if err != nil {
+		return fmt.Errorf("restart baseline: %w", err)
+	}
+	s.restartBaseline = baseline
 
 	slog.Info("postgres-failure: setup complete")
 	return nil
@@ -84,9 +92,9 @@ func (s *PostgresFailure) Observe(ctx context.Context, sc *chaos.ScenarioContext
 	observed.Metrics["api_responds"] = apiResponds
 	observed.Metrics["api_structured_status"] = apiStructuredStatus
 
-	// Check container health status and restart counts for api, worker, watchdog
+	// Check container health status and restart count deltas for api, worker, watchdog
 	services := []string{"api", "worker", "watchdog"}
-	restartCounts := make(map[string]int)
+	restartDeltas := make(map[string]int)
 	containerAlive := make(map[string]bool)
 
 	for _, svc := range services {
@@ -98,22 +106,22 @@ func (s *PostgresFailure) Observe(ctx context.Context, sc *chaos.ScenarioContext
 			containerAlive[svc] = health != docker.HealthExited
 		}
 
-		count, err := sc.Checker.ContainerRestartCount(ctx, svc)
+		delta, err := s.restartBaseline.Delta(ctx, sc, svc)
 		if err != nil {
 			slog.Warn("postgres-failure: restart count error", "service", svc, "error", err)
-			restartCounts[svc] = -1
+			restartDeltas[svc] = -1
 		} else {
-			restartCounts[svc] = count
+			restartDeltas[svc] = delta
 		}
 
 		slog.Info("postgres-failure: service status",
 			"service", svc,
 			"alive", containerAlive[svc],
-			"restart_count", restartCounts[svc],
+			"restart_delta", restartDeltas[svc],
 		)
 	}
 
-	observed.Metrics["restart_counts"] = restartCounts
+	observed.Metrics["restart_counts"] = restartDeltas
 	observed.Metrics["containers_alive"] = containerAlive
 
 	return observed, nil
@@ -195,7 +203,7 @@ func (s *PostgresFailure) Validate(ctx context.Context, sc *chaos.ScenarioContex
 	result, err := sc.Checker.WaitFor(ctx, checker.WaitCondition{
 		Name: "pgx-reconnect",
 		Check: func(ctx context.Context) (bool, error) {
-			_, err := submitTask(sc.Config.APIURL, "chaos-postgres-reconnect-test")
+			_, err := submitTaskWithRunID(sc.Config.APIURL, "chaos-postgres-reconnect-test", sc.ChaosRunDBID)
 			if err != nil {
 				slog.Debug("postgres-failure: reconnect attempt failed", "error", err)
 				return false, nil

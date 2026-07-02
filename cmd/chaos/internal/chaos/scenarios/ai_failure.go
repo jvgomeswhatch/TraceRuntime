@@ -39,13 +39,25 @@ func (a *AIFailure) Setup(ctx context.Context, sc *chaos.ScenarioContext) error 
 			return fmt.Errorf("container health %s: %w", c, err)
 		}
 		if status != docker.HealthHealthy {
+			// ai-runtime may be unhealthy from a previous scenario — try recovery
+			if c == "ai-runtime" {
+				slog.Info("ai-failure: setup — attempting ai-runtime recovery", "current_status", status)
+				if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
+					slog.Warn("ai-failure: setup start ai-runtime", "error", startErr)
+				}
+				if waitErr := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 120*time.Second); waitErr != nil {
+					return fmt.Errorf("ai-runtime recovery failed: %w", waitErr)
+				}
+				slog.Info("ai-failure: setup — ai-runtime recovered")
+				continue
+			}
 			return fmt.Errorf("container %s is %s, expected healthy", c, status)
 		}
 	}
 
 	// Smoke test: submit 1 task, wait for it to complete or fail.
 	slog.Info("ai-failure: setup — smoke test: submitting 1 task")
-	smokeTaskID, err := submitTask(sc.Config.APIURL, "chaos-ai-failure-smoke")
+	smokeTaskID, err := submitTaskWithRunID(sc.Config.APIURL, "chaos-ai-failure-smoke", sc.ChaosRunDBID)
 	if err != nil {
 		return fmt.Errorf("smoke test submit: %w", err)
 	}
@@ -107,7 +119,7 @@ func (a *AIFailure) Inject(ctx context.Context, sc *chaos.ScenarioContext) error
 	a.injectTaskIDs = nil
 	for i := 0; i < 2; i++ {
 		input := fmt.Sprintf("chaos-ai-failure-task-%d", i+1)
-		taskID, err := submitTask(sc.Config.APIURL, input)
+		taskID, err := submitTaskWithRunID(sc.Config.APIURL, input, sc.ChaosRunDBID)
 		if err != nil {
 			return fmt.Errorf("submit task %d: %w", i+1, err)
 		}
@@ -195,12 +207,12 @@ func (a *AIFailure) Validate(ctx context.Context, sc *chaos.ScenarioContext, obs
 		return report, nil
 	}
 
-	if err := sc.Docker.WaitForHealthy(ctx, "ai-runtime", time.Duration(aiFailureRecoverySLO)*time.Second); err != nil {
+	if err := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 120*time.Second); err != nil {
 		report.SLOResults = append(report.SLOResults, chaos.SLOResult{
 			Name:     fmt.Sprintf("ai-runtime recovery < %.0fs", aiFailureRecoverySLO),
 			Type:     chaos.SLOTiming,
-			Expected: fmt.Sprintf("<%.0fs", aiFailureRecoverySLO),
-			Actual:   fmt.Sprintf("timeout: %v", err),
+			Expected: aiFailureRecoverySLO,
+			Actual:   time.Since(recoveryStart).Seconds(),
 			Status:   chaos.SLOFail,
 		})
 		report.Metrics = observed.Metrics
@@ -251,7 +263,7 @@ func (a *AIFailure) Validate(ctx context.Context, sc *chaos.ScenarioContext, obs
 
 	// Functional: new post-recovery task also completes.
 	slog.Info("ai-failure: validate — submitting post-recovery task")
-	recoveryTaskID, err := submitTask(sc.Config.APIURL, "chaos-ai-failure-recovery")
+	recoveryTaskID, err := submitTaskWithRunID(sc.Config.APIURL, "chaos-ai-failure-recovery", sc.ChaosRunDBID)
 	if err != nil {
 		report.SLOResults = append(report.SLOResults, chaos.SLOResult{
 			Name:     "post-recovery task submission",
@@ -314,7 +326,7 @@ func (a *AIFailure) Cleanup(ctx context.Context, sc *chaos.ScenarioContext) erro
 		if startErr := sc.Docker.Start(ctx, "ai-runtime"); startErr != nil {
 			slog.Warn("ai-failure: cleanup start ai-runtime", "error", startErr)
 		}
-		if waitErr := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 60*time.Second); waitErr != nil {
+		if waitErr := sc.Docker.WaitForHealthy(ctx, "ai-runtime", 120*time.Second); waitErr != nil {
 			slog.Warn("ai-failure: cleanup wait for ai-runtime healthy", "error", waitErr)
 		}
 	}

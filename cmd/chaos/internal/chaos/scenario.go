@@ -9,14 +9,15 @@ import (
 )
 
 type ScenarioContext struct {
-	RunID        string
-	ScenarioName string
-	StartTime    time.Time
-	Config       Config
-	Timeout      time.Duration
-	PollInterval time.Duration
-	Checker      *checker.Checker
-	Docker       *docker.Controller
+	RunID         string
+	ChaosRunDBID  string
+	ScenarioName  string
+	StartTime     time.Time
+	Config        Config
+	Timeout       time.Duration
+	PollInterval  time.Duration
+	Checker       *checker.Checker
+	Docker        *docker.Controller
 }
 
 type ObserveResult struct {
