@@ -152,7 +152,7 @@ export default function DLQPage() {
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
           <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Messages in DLQ</p>
-          <p className="text-lg font-semibold text-red-400 tabular-nums">~{approxCount}</p>
+          <p className="text-lg font-semibold text-red-400 tabular-nums">{approxCount}</p>
         </div>
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
           <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Loaded</p>

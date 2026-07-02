@@ -22,7 +22,8 @@ func (d *DB) RuntimeMetrics(ctx context.Context, windowSeconds int) (*RuntimeMet
 		WITH window_tasks AS (
 			SELECT status, processing_started_at, completed_at
 			FROM tasks
-			WHERE updated_at >= NOW() - INTERVAL '1 second' * $1
+			WHERE chaos_run_id IS NULL
+			  AND updated_at >= NOW() - INTERVAL '1 second' * $1
 			  AND (completed_at IS NOT NULL OR status = 'failed')
 		),
 		counts AS (
@@ -36,6 +37,7 @@ func (d *DB) RuntimeMetrics(ctx context.Context, windowSeconds int) (*RuntimeMet
 				COUNT(*) FILTER (WHERE status = 'completed') AS total_completed,
 				COUNT(*) FILTER (WHERE status = 'failed')    AS total_failed
 			FROM tasks
+			WHERE chaos_run_id IS NULL
 		),
 		latencies AS (
 			SELECT

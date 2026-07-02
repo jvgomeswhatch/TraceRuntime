@@ -84,7 +84,10 @@ export const KpiCards = React.memo(function KpiCards() {
   const kpis = useMemo<KpiData[]>(() => {
     const p95 = metrics ? metrics.p95_latency_ms / 1000 : 0;
     const avgLatency = metrics ? metrics.avg_latency_ms / 1000 : 0;
-    const errorRate = metrics?.error_rate ?? 0;
+    const totalAll2 = (metrics?.total_completed ?? 0) + (metrics?.total_failed ?? 0);
+    const errorRate = totalAll2 > 0
+      ? ((metrics?.total_failed ?? 0) / totalAll2) * 100
+      : 0;
     const queueDepth = metrics?.queue_depth ?? 0;
     const totalAll = metrics ? (metrics.total_completed ?? 0) + (metrics.total_failed ?? 0) : 0;
 
@@ -122,7 +125,7 @@ export const KpiCards = React.memo(function KpiCards() {
         value: metrics ? `${errorRate.toFixed(1)}%` : "—",
         unit: "",
         trend: errorRate > 5 ? "up" : errorRate > 0 ? "flat" : "down",
-        trendLabel: metrics ? `${metrics.failed} failed` : "no data",
+        trendLabel: metrics ? `${metrics.total_failed} failed` : "no data",
         sparkData: [],
         color: errorRate > 5 ? "#f87171" : "#34d399",
         trendColor:

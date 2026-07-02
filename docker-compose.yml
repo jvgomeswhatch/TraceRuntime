@@ -111,8 +111,9 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3001}
       - CAPACITY_RESULTS_DIR=/app/results
       - TEMPO_URL=http://tempo:3200
+      - CHAOS_REQUESTS_DIR=/app/results/chaos-requests
     volumes:
-      - ./results:/app/results:ro
+      - ./results:/app/results
     networks: [traceruntime]
     depends_on:
       localstack:
@@ -199,11 +200,11 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/traceruntime-tasks
       - SQS_DLQ_URL=http://localstack:4566/000000000000/traceruntime-tasks-dlq
-      - WATCHDOG_POLL_INTERVAL_SECONDS=15
+      - WATCHDOG_POLL_INTERVAL_SECONDS=5
       - WATCHDOG_HEARTBEAT_STALE_SECONDS=60
       - WATCHDOG_HEALTHCHECK_INTERVAL_SECONDS=15
       - WATCHDOG_HEALTHCHECK_FAILURES=3
-      - WATCHDOG_QUEUE_LAG_THRESHOLD=50
+      - WATCHDOG_QUEUE_LAG_THRESHOLD=10
       - WATCHDOG_TASK_STUCK_SECONDS=300
       - WATCHDOG_DLQ_DELTA_THRESHOLD=1
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317

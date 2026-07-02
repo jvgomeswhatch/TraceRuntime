@@ -144,11 +144,17 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	taskID := uuid.New().String()
 
+	var chaosRunID *string
+	if v := r.Header.Get("X-Chaos-Run-Id"); v != "" {
+		chaosRunID = &v
+	}
+
 	if h.db != nil {
 		if err := h.db.InsertTask(ctx, db.CreateTaskParams{
 			ID:           taskID,
 			TraceID:      traceID,
 			InputPayload: req.Input,
+			ChaosRunID:   chaosRunID,
 		}); err != nil {
 			telemetry.Error(ctx, "failed to insert task", "task_id", taskID, "error", err)
 			jsonError(w, "internal error", http.StatusInternalServerError)
@@ -185,23 +191,25 @@ func (h *TaskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	enqueueSpan.End()
 
 	_, publishSpan := taskTracer.Start(ctx, "task.publish")
-	ev := sseEvent{
-		EventID:     uuid.New().String(),
-		EventType:   "task.created",
-		TraceID:     traceID,
-		Traceparent: traceparent,
-		TaskID:      taskID,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Source:      "api",
+	if chaosRunID == nil {
+		ev := sseEvent{
+			EventID:     uuid.New().String(),
+			EventType:   "task.created",
+			TraceID:     traceID,
+			Traceparent: traceparent,
+			TaskID:      taskID,
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Source:      "api",
+		}
+		evBytes, err := json.Marshal(ev)
+		if err != nil {
+			publishSpan.End()
+			telemetry.Error(ctx, "failed to marshal sse event", "error", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		h.broker.Publish(evBytes)
 	}
-	evBytes, err := json.Marshal(ev)
-	if err != nil {
-		publishSpan.End()
-		telemetry.Error(ctx, "failed to marshal sse event", "error", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	h.broker.Publish(evBytes)
 	publishSpan.End()
 
 	telemetry.Info(ctx, "task created", "task_id", taskID, "event_type", "task.created")

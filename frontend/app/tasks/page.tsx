@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ListTodo,
   CheckCircle2,
@@ -13,40 +13,56 @@ import {
   Search,
   RotateCcw,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { useSSEContext } from "@/components/providers/sse-provider";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8082";
 const TOKEN = process.env.NEXT_PUBLIC_INTERNAL_TOKEN || "";
+const PAGE_SIZE = 50;
 
-function statusIcon(eventType: string) {
-  if (eventType.includes("completed"))
+interface TaskItem {
+  id: string;
+  trace_id: string;
+  status: string;
+  created_at: string;
+  processing_started_at?: string;
+  completed_at?: string;
+  error_message?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  tokens_per_second?: number;
+  model?: string;
+  duration_ms?: number;
+}
+
+interface TaskListResponse {
+  tasks: TaskItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+function statusIcon(status: string) {
+  if (status === "completed")
     return <CheckCircle2 className="size-3.5 text-emerald-400" />;
-  if (eventType.includes("failed"))
+  if (status === "failed")
     return <XCircle className="size-3.5 text-red-400" />;
-  if (eventType.includes("processing"))
+  if (status === "processing")
     return <Loader2 className="size-3.5 text-blue-400 animate-spin" />;
   return <Zap className="size-3.5 text-violet-400" />;
 }
 
-function statusBadgeClass(eventType: string): string {
-  if (eventType.includes("completed"))
+function statusBadgeClass(status: string): string {
+  if (status === "completed")
     return "text-emerald-400 border-emerald-500/40 bg-emerald-500/10";
-  if (eventType.includes("failed"))
+  if (status === "failed")
     return "text-red-400 border-red-500/40 bg-red-500/10";
-  if (eventType.includes("processing"))
+  if (status === "processing")
     return "text-blue-400 border-blue-500/40 bg-blue-500/10";
   return "text-violet-400 border-violet-500/40 bg-violet-500/10";
-}
-
-function statusLabel(eventType: string): string {
-  if (eventType.includes("completed")) return "completed";
-  if (eventType.includes("failed")) return "failed";
-  if (eventType.includes("processing")) return "processing";
-  if (eventType.includes("created")) return "created";
-  return eventType.replace("task.", "");
 }
 
 function formatDuration(ms: number | undefined): string {
@@ -169,75 +185,67 @@ function ReplayModal({
   );
 }
 
+const STATUS_FILTERS = ["all", "pending", "processing", "completed", "failed"] as const;
+
 export default function TasksPage() {
-  const { events } = useSSEContext();
-  const [filter, setFilter] = useState("");
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
   const [replayTarget, setReplayTarget] = useState<string | null>(null);
 
-  const latestByTask = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        task_id: string;
-        trace_id: string;
-        event_type: string;
-        model?: string;
-        duration_ms: number | null;
-        prompt_tokens?: number;
-        completion_tokens?: number;
-        tokens_per_second?: number;
-        timestamp: string;
-      }
-    >();
+  const fetchTasks = useCallback(async (p: number, status: string) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(p),
+        page_size: String(PAGE_SIZE),
+      });
+      if (status !== "all") params.set("status", status);
 
-    for (const ev of events) {
-      const existing = map.get(ev.task_id);
-      if (
-        !existing ||
-        new Date(ev.timestamp).getTime() > new Date(existing.timestamp).getTime()
-      ) {
-        let durationMs: number | null = ev.inference_duration_ms ?? null;
-        if (!durationMs && ev.processing_started_at && ev.completed_at) {
-          durationMs =
-            new Date(ev.completed_at).getTime() -
-            new Date(ev.processing_started_at).getTime();
-        }
-
-        map.set(ev.task_id, {
-          task_id: ev.task_id,
-          trace_id: ev.trace_id,
-          event_type: ev.event_type,
-          model: ev.model,
-          duration_ms: durationMs,
-          prompt_tokens: ev.prompt_tokens,
-          completion_tokens: ev.completion_tokens,
-          tokens_per_second: ev.tokens_per_second,
-          timestamp: ev.timestamp,
-        });
+      const res = await fetch(`${API_URL}/api/tasks/list?${params}`, {
+        headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
+      });
+      if (res.ok) {
+        const data: TaskListResponse = await res.json();
+        setTasks(data.tasks || []);
+        setTotal(data.total);
+        setPage(data.page);
       }
+    } catch {
+      /* ignore */
     }
+    setLoading(false);
+  }, []);
 
-    return Array.from(map.values()).sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-  }, [events]);
+  useEffect(() => {
+    fetchTasks(page, statusFilter);
+    const interval = setInterval(() => fetchTasks(page, statusFilter), 10_000);
+    return () => clearInterval(interval);
+  }, [fetchTasks, page, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const filtered = useMemo(() => {
-    if (!filter.trim()) return latestByTask;
-    const q = filter.toLowerCase();
-    return latestByTask.filter(
+    if (!search.trim()) return tasks;
+    const q = search.toLowerCase();
+    return tasks.filter(
       (t) =>
-        t.task_id.toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q) ||
         t.trace_id.toLowerCase().includes(q) ||
-        t.event_type.toLowerCase().includes(q) ||
+        t.status.toLowerCase().includes(q) ||
         (t.model && t.model.toLowerCase().includes(q))
     );
-  }, [latestByTask, filter]);
+  }, [tasks, search]);
+
+  const rangeStart = (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div className="px-6 py-5 lg:px-8">
-      <header className="mb-5 flex items-center justify-between">
+      <header className="mb-5">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100 tracking-tight flex items-center gap-2.5">
             <ListTodo className="size-5 text-zinc-400" />
@@ -247,29 +255,65 @@ export default function TasksPage() {
             All tasks processed by the platform
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <span className="tabular-nums">{latestByTask.length}</span> tasks
-        </div>
       </header>
 
-      {/* Search */}
-      <div className="mb-4 relative max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-500" />
-        <Input
-          type="text"
-          placeholder="Filter by ID, model, status..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="pl-8 bg-zinc-900/60 border-zinc-800/80 text-zinc-100 placeholder:text-zinc-500 text-xs h-8"
-        />
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Total Tasks</p>
+          <p className="text-lg font-semibold text-zinc-100 tabular-nums">{total}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Page</p>
+          <p className="text-lg font-semibold text-zinc-100 tabular-nums">{page} / {totalPages}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Showing</p>
+          <p className="text-lg font-semibold text-zinc-100 tabular-nums">
+            {total > 0 ? `${rangeStart}–${rangeEnd}` : "0"} <span className="text-xs text-zinc-500 font-normal">of {total}</span>
+          </p>
+        </div>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Filter</p>
+          <p className="text-lg font-semibold text-zinc-100 tabular-nums capitalize">{statusFilter}</p>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-500" />
+          <Input
+            type="text"
+            placeholder="Filter by ID, model, status..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 bg-zinc-900/60 border-zinc-800/80 text-zinc-100 placeholder:text-zinc-500 text-xs h-8"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {STATUS_FILTERS.map((s) => (
+            <button
+              key={s}
+              onClick={() => { setStatusFilter(s); setPage(1); }}
+              className={`text-[10px] font-medium uppercase px-2 py-1 rounded-lg border transition-colors ${
+                statusFilter === s
+                  ? "text-zinc-100 border-zinc-600 bg-zinc-800"
+                  : "text-zinc-500 border-zinc-800/80 bg-zinc-900/60 hover:text-zinc-300"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && !loading ? (
         <div className="flex flex-col items-center justify-center py-16 text-zinc-500">
           <Inbox className="size-8 text-zinc-600 mb-3" />
           <p className="text-sm">
-            {events.length === 0
+            {total === 0
               ? "No tasks yet. Submit a task from the Overview."
               : "No tasks match your filter."}
           </p>
@@ -308,26 +352,26 @@ export default function TasksPage() {
             <tbody>
               {filtered.map((task) => (
                 <tr
-                  key={task.task_id}
+                  key={task.id}
                   className="border-b border-zinc-800/40 last:border-b-0 hover:bg-zinc-800/30 transition-colors"
                 >
                   <td className="py-2.5 pl-4 pr-3">
-                    <CopyCell text={task.task_id} />
+                    <CopyCell text={task.id} />
                   </td>
                   <td className="py-2.5 px-3">
                     <Badge
                       variant="outline"
-                      className={`${statusBadgeClass(task.event_type)} text-[10px] uppercase font-semibold px-1.5 py-0 inline-flex items-center gap-1`}
+                      className={`${statusBadgeClass(task.status)} text-[10px] uppercase font-semibold px-1.5 py-0 inline-flex items-center gap-1`}
                     >
-                      {statusIcon(task.event_type)}
-                      {statusLabel(task.event_type)}
+                      {statusIcon(task.status)}
+                      {task.status}
                     </Badge>
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 font-mono">
-                    {task.model ?? "—"}
+                    {task.model || "—"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
-                    {formatDuration(task.duration_ms ?? undefined)}
+                    {formatDuration(task.duration_ms)}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {task.prompt_tokens || task.completion_tokens
@@ -340,13 +384,12 @@ export default function TasksPage() {
                       : "—"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-500 tabular-nums text-right">
-                    {new Date(task.timestamp).toLocaleTimeString()}
+                    {new Date(task.created_at).toLocaleTimeString()}
                   </td>
                   <td className="py-2.5 pl-3 pr-4 text-right">
-                    {(task.event_type.includes("completed") ||
-                      task.event_type.includes("failed")) && (
+                    {(task.status === "completed" || task.status === "failed") && (
                       <button
-                        onClick={() => setReplayTarget(task.task_id)}
+                        onClick={() => setReplayTarget(task.id)}
                         className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-400 hover:text-violet-300 border border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 rounded px-2 py-0.5 transition-colors"
                       >
                         <RotateCcw className="size-2.5" />
@@ -358,6 +401,36 @@ export default function TasksPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-between">
+          <p className="text-xs text-zinc-500">
+            Showing {rangeStart}–{rangeEnd} of {total} tasks
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 bg-zinc-900/60 rounded-lg px-2 py-1 transition-colors disabled:opacity-30"
+            >
+              <ChevronLeft className="size-3" />
+              Prev
+            </button>
+            <span className="text-xs text-zinc-500 px-2 tabular-nums">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 bg-zinc-900/60 rounded-lg px-2 py-1 transition-colors disabled:opacity-30"
+            >
+              Next
+              <ChevronRight className="size-3" />
+            </button>
+          </div>
         </div>
       )}
 

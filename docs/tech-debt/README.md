@@ -25,6 +25,14 @@ Todas as features devem ser testáveis na CI (integration ou E2E).
 | [dlq-explorer.md](dlq-explorer.md) | DLQ Explorer | Média |
 | [chaos-dashboard.md](chaos-dashboard.md) | Chaos Dashboard | Média |
 
+## Chaos & Watchdog
+
+| Arquivo | Feature | Prioridade |
+|---------|---------|------------|
+| [watchdog-dynamic-threshold.md](watchdog-dynamic-threshold.md) | Threshold dinâmico baseado em capacidade | Baixa |
+| [chaos-slo-timeout-separation.md](chaos-slo-timeout-separation.md) | Convenção SLO vs timeout operacional | Implementado |
+| [chaos-cleanup-isolation.md](chaos-cleanup-isolation.md) | Isolamento do cleanup via prefixo (temporário) | Implementado |
+
 ## Infraestrutura (suporte)
 
 | Arquivo | Categoria | Prioridade |
@@ -32,6 +40,7 @@ Todas as features devem ser testáveis na CI (integration ou E2E).
 | [alerting-rules.md](alerting-rules.md) | Observabilidade | Alta |
 | [auto-recovery.md](auto-recovery.md) | Resiliência | Média |
 | [runbooks.md](runbooks.md) | Operações | Média |
+| [scaling-bottlenecks.md](scaling-bottlenecks.md) | Escalabilidade | Baixa |
 
 ---
 

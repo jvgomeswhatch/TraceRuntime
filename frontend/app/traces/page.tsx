@@ -154,7 +154,7 @@ export default function TracesPage() {
 
   return (
     <div className="px-6 py-5 lg:px-8">
-      <header className="mb-5 flex items-center justify-between">
+      <header className="mb-5">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100 tracking-tight flex items-center gap-2.5">
             <GitBranch className="size-5 text-zinc-400" />
@@ -164,10 +164,33 @@ export default function TracesPage() {
             Distributed traces across the pipeline
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-zinc-500">
-          <span className="tabular-nums">{traceGroups.length}</span> traces
-        </div>
       </header>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Total Traces</p>
+          <p className="text-lg font-semibold text-zinc-100 tabular-nums">{traceGroups.length}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Completed</p>
+          <p className="text-lg font-semibold text-emerald-400 tabular-nums">
+            {traceGroups.filter((t) => t.latestStatus.includes("completed")).length}
+          </p>
+        </div>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Failed</p>
+          <p className="text-lg font-semibold text-red-400 tabular-nums">
+            {traceGroups.filter((t) => t.latestStatus.includes("failed")).length}
+          </p>
+        </div>
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
+          <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">In Progress</p>
+          <p className="text-lg font-semibold text-blue-400 tabular-nums">
+            {traceGroups.filter((t) => t.latestStatus.includes("processing")).length}
+          </p>
+        </div>
+      </div>
 
       {/* Search */}
       <div className="mb-4 relative max-w-sm">

@@ -144,13 +144,13 @@ export function TaskForm() {
         )}
 
         {!last && !error && (
-          <div className="rounded-lg border border-dashed border-zinc-800/80 bg-zinc-800/20 p-3">
+          <div className="rounded-lg border border-dashed border-zinc-700/60 bg-zinc-800/40 p-3">
             <div className="flex items-start gap-2.5">
               <Sparkles className="size-3.5 text-zinc-500 mt-0.5 shrink-0" />
               <div className="text-[11px] text-zinc-500 space-y-1">
-                <p className="text-zinc-400">Pipeline flow:</p>
-                <p className="font-mono text-zinc-500">
-                  API &rarr; SQS &rarr; Worker &rarr; AI Runtime &rarr; SSE
+                <p className="text-zinc-300">Pipeline flow:</p>
+                <p className="font-mono text-emerald-400/80">
+                  API &rarr; SQS &rarr; Worker &rarr; AI Runtime &rarr; S3 &rarr; SSE
                 </p>
               </div>
             </div>

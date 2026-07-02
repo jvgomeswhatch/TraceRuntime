@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/go-chi/chi/v5"
@@ -42,8 +43,9 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	}
 
 	tokenMw := internalTokenMiddleware(internalToken)
-	r.Post("/internal/events", tokenMw(NewEventsHandler(broker)).ServeHTTP)
+	r.Post("/internal/events", tokenMw(NewEventsHandler(broker, database)).ServeHTTP)
 	r.Get("/api/events/recent", tokenMw(NewRecentEventsHandler(database)).ServeHTTP)
+	r.Get("/api/tasks/list", tokenMw(NewTaskListHandler(database)).ServeHTTP)
 	r.Get("/api/operations/summary", tokenMw(NewOperationsSummaryHandler(database)).ServeHTTP)
 	r.Get("/api/capacity/latest", tokenMw(NewCapacityHandler(resultsDir)).ServeHTTP)
 	r.Get("/api/metrics/runtime", tokenMw(NewRuntimeMetricsHandler(database, sqsClient, sqsQueueURL, q)).ServeHTTP)
@@ -81,6 +83,28 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 			w.WriteHeader(http.StatusNoContent)
 		})
 	}
+
+	// Chaos Dashboard (Phase 11)
+	chaosResultsDir := os.Getenv("CAPACITY_RESULTS_DIR")
+	chaosRequestDir := os.Getenv("CHAOS_REQUESTS_DIR")
+	if chaosResultsDir == "" {
+		chaosResultsDir = "results"
+	}
+	if chaosRequestDir == "" {
+		chaosRequestDir = filepath.Join(chaosResultsDir, "chaos-requests")
+	}
+	chaosHandler := handlers.NewChaosHandler(chaosResultsDir, chaosRequestDir)
+	r.Get("/api/chaos/reports", tokenMw(http.HandlerFunc(chaosHandler.ListReports)).ServeHTTP)
+	r.Get("/api/chaos/reports/{reportId}", tokenMw(http.HandlerFunc(chaosHandler.GetReport)).ServeHTTP)
+	r.Post("/api/chaos/trigger", tokenMw(http.HandlerFunc(chaosHandler.Trigger)).ServeHTTP)
+	r.Options("/api/chaos/trigger", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	r.Get("/api/chaos/status", tokenMw(http.HandlerFunc(chaosHandler.Status)).ServeHTTP)
+	r.Delete("/api/chaos/requests/{runId}", tokenMw(http.HandlerFunc(chaosHandler.Cancel)).ServeHTTP)
+	r.Options("/api/chaos/requests/{runId}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	return r
 }
