@@ -1,0 +1,21 @@
+title = "TraceRuntime Gitleaks Configuration"
+
+[allowlist]
+description = "LocalStack and local development dummy credentials"
+
+# LocalStack fake AWS credentials used in docker-compose, Terraform, and CI
+regexTarget = "match"
+regexes = [
+  '''access_key\s*=\s*"test"''',
+  '''secret_key\s*=\s*"test"''',
+  '''AWS_ACCESS_KEY_ID=test''',
+  '''AWS_SECRET_ACCESS_KEY=test''',
+  '''POSTGRES_PASSWORD=traceruntime''',
+  '''traceruntime:traceruntime@''',
+  '''GF_SECURITY_ADMIN_PASSWORD=admin''',
+]
+
+paths = [
+  '''(^|/)\.gitleaks\.toml$''',
+  '''(^|/)\.github/workflows/.*\.yml$''',
+]

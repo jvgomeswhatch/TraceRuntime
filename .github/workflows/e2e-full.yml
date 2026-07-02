@@ -1,0 +1,327 @@
+name: E2E — Full Validation
+
+on:
+  push:
+    branches: [main, developer]
+
+concurrency:
+  group: e2e-full-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+# =============================================================================
+jobs:
+
+  system-validation:
+    name: Full E2E — build, scan, test, artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_ENDPOINT: http://localhost:4566
+      DATABASE_URL: postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable
+      SQS_QUEUE_URL: http://localhost:4566/000000000000/traceruntime-tasks
+      SQS_DLQ_URL: http://localhost:4566/000000000000/traceruntime-tasks-dlq
+
+    # -- Service containers ----------------------------------------------------
+    services:
+      localstack:
+        image: localstack/localstack:3.4
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: sqs,s3
+          DEFAULT_REGION: us-east-1
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 20s
+
+      postgres:
+        image: postgres:16-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: traceruntime
+          POSTGRES_USER: traceruntime
+          POSTGRES_PASSWORD: traceruntime
+        options: >-
+          --health-cmd "pg_isready -U traceruntime -d traceruntime"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      # -- 1. Checkout ---------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      # -- 2. Setup tools ------------------------------------------------------
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: |
+            services/api/go.sum
+            services/worker/go.sum
+            services/watchdog/go.sum
+            tests/integration/go.sum
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.12.0"
+
+      # -- 3. Provision infrastructure -----------------------------------------
+      - name: Terraform init + apply
+        run: |
+          terraform -chdir=infra/terraform init -input=false
+          terraform -chdir=infra/terraform apply -auto-approve
+        env:
+          TF_VAR_localstack_endpoint: ${{ env.LOCALSTACK_ENDPOINT }}
+
+      - name: Run database migrations
+        run: |
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/infra/database/migrations:/migrations:ro \
+            migrate/migrate:v4.18.1 \
+            -path=/migrations \
+            -database="${DATABASE_URL}" \
+            up
+
+      # -- 4. Setup Docker Buildx ---------------------------------------------
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      # -- 5. Build containers -------------------------------------------------
+      - name: Build API image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./services/api
+          load: true
+          tags: traceruntime-api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build Worker image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./services/worker
+          load: true
+          tags: traceruntime-worker:latest
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      - name: Build Watchdog image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./services/watchdog
+          load: true
+          tags: traceruntime-watchdog:latest
+          cache-from: type=gha,scope=watchdog
+          cache-to: type=gha,mode=max,scope=watchdog
+
+      - name: Build Mock AI Runtime image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./tests/integration/cmd/mock-ai-runtime
+          load: true
+          tags: mock-ai-runtime:latest
+          cache-from: type=gha,scope=mock-ai
+          cache-to: type=gha,mode=max,scope=mock-ai
+
+      # -- 6. Trivy container scan --------------------------------------------
+      - name: Trivy scan — API
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: traceruntime-api:latest
+          severity: CRITICAL,HIGH
+          format: sarif
+          output: trivy-api.sarif
+
+      - name: Upload Trivy SARIF — API
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          sarif_file: trivy-api.sarif
+          category: trivy-api
+
+      - name: Trivy scan — Worker
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: traceruntime-worker:latest
+          severity: CRITICAL,HIGH
+          format: sarif
+          output: trivy-worker.sarif
+
+      - name: Upload Trivy SARIF — Worker
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          sarif_file: trivy-worker.sarif
+          category: trivy-worker
+
+      - name: Trivy scan — Watchdog
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: traceruntime-watchdog:latest
+          severity: CRITICAL,HIGH
+          format: sarif
+          output: trivy-watchdog.sarif
+
+      - name: Upload Trivy SARIF — Watchdog
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          sarif_file: trivy-watchdog.sarif
+          category: trivy-watchdog
+
+      # -- 7. SBOM generation --------------------------------------------------
+      # Optional: SBOM for supply chain visibility
+      - name: Generate SBOM — API
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: traceruntime-api:latest
+          artifact-name: sbom-api
+
+      # -- 8. Generate CI environment ------------------------------------------
+      - name: Generate CI environment
+        id: ci-env
+        run: |
+          CI_TOKEN="ci-$(echo '${{ github.run_id }}-${{ github.sha }}' | sha256sum | head -c 48)"
+
+          docker network create traceruntime-ci
+
+          mkdir -p /tmp/ci-results/chaos-requests /tmp/ci-reports /tmp/ci-logs
+
+          cat <<'ENVEOF' > /tmp/ci-containers.env
+            DATABASE_URL=postgres://traceruntime:traceruntime@host.docker.internal:5432/traceruntime?sslmode=disable
+            SQS_QUEUE_URL=http://host.docker.internal:4566/000000000000/traceruntime-tasks
+            SQS_DLQ_URL=http://host.docker.internal:4566/000000000000/traceruntime-tasks-dlq
+            QUEUE_BACKEND=sqs
+            AWS_ENDPOINT_URL=http://host.docker.internal:4566
+            AWS_ACCESS_KEY_ID=test
+            AWS_SECRET_ACCESS_KEY=test
+            AWS_DEFAULT_REGION=us-east-1
+          ENVEOF
+
+          echo "INTERNAL_TOKEN=${CI_TOKEN}" >> /tmp/ci-containers.env
+          sed -i 's/^[[:space:]]*//' /tmp/ci-containers.env
+
+          echo "token=${CI_TOKEN}" >> "$GITHUB_OUTPUT"
+
+      # -- 9. Start services ---------------------------------------------------
+      - name: Start Mock AI Runtime
+        run: |
+          docker run -d \
+            --name mock-ai-runtime \
+            --network traceruntime-ci \
+            -p 8000:8000 \
+            mock-ai-runtime:latest
+
+      - name: Start API
+        run: |
+          docker run -d \
+            --name api \
+            --network traceruntime-ci \
+            -p 8082:8082 \
+            --env-file /tmp/ci-containers.env \
+            -e AI_RUNTIME_URL=http://mock-ai-runtime:8000 \
+            -e ALLOWED_ORIGINS="*" \
+            -e CAPACITY_RESULTS_DIR=/results \
+            -v /tmp/ci-results:/results \
+            --add-host=host.docker.internal:host-gateway \
+            traceruntime-api:latest
+
+      - name: Start Worker
+        run: |
+          docker run -d \
+            --name worker \
+            --network traceruntime-ci \
+            -p 9091:9091 \
+            --env-file /tmp/ci-containers.env \
+            -e S3_BUCKET=traceruntime-outputs \
+            -e AI_RUNTIME_URL=http://mock-ai-runtime:8000 \
+            -e API_INTERNAL_URL=http://api:8082 \
+            --add-host=host.docker.internal:host-gateway \
+            traceruntime-worker:latest
+
+      - name: Start Watchdog
+        run: |
+          docker run -d \
+            --name watchdog \
+            --network traceruntime-ci \
+            -p 9093:9093 \
+            --env-file /tmp/ci-containers.env \
+            -e API_EVENTS_URL=http://api:8082/internal/events \
+            -e WORKER_HEALTH_URL=http://worker:9091/health \
+            --add-host=host.docker.internal:host-gateway \
+            traceruntime-watchdog:latest
+
+      # -- 10. Wait for services healthy ---------------------------------------
+      - name: Wait for services healthy
+        run: |
+          wait_healthy() {
+            local name=$1 url=$2 retries=${3:-30}
+            echo "Waiting for ${name}..."
+            for i in $(seq 1 "$retries"); do
+              if curl -sf "$url" > /dev/null 2>&1; then
+                echo "${name} healthy"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "${name} not healthy — dumping logs:"
+            docker logs "$name" 2>&1 | tail -50
+            return 1
+          }
+
+          wait_healthy api      http://localhost:8082/health 30
+          wait_healthy worker   http://localhost:9091/health 15
+          wait_healthy watchdog http://localhost:9093/health 15
+
+      # -- 11. Run integration tests -------------------------------------------
+      - name: Run integration tests
+        run: |
+          cd tests/integration && go test -v -count=1 -timeout=5m -json ./... | tee /tmp/ci-reports/test-results.json
+        timeout-minutes: 7
+        env:
+          API_URL: http://localhost:8082
+          SQS_ENDPOINT: ${{ env.LOCALSTACK_ENDPOINT }}
+          S3_ENDPOINT: ${{ env.LOCALSTACK_ENDPOINT }}
+          INTERNAL_TOKEN: ${{ steps.ci-env.outputs.token }}
+          CAPACITY_RESULTS_DIR: /tmp/ci-results
+
+      # -- 12. Collect service logs --------------------------------------------
+      - name: Collect service logs
+        if: always()
+        run: |
+          for svc in api worker watchdog mock-ai-runtime; do
+            docker logs "$svc" > "/tmp/ci-logs/${svc}.log" 2>&1 || true
+          done
+          docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" > /tmp/ci-logs/containers.txt 2>&1 || true
+
+      # -- 13. Upload artifacts ------------------------------------------------
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: e2e-service-logs
+          path: /tmp/ci-logs/
+          retention-days: 7
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: e2e-test-reports
+          path: /tmp/ci-reports/
+          retention-days: 7

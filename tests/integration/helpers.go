@@ -110,7 +110,7 @@ func getTask(t *testing.T, taskID string) taskRecord {
 func cleanDB(t *testing.T) {
 	t.Helper()
 	_, err := dbPool.Exec(context.Background(),
-		"TRUNCATE TABLE healing_events, worker_heartbeats, tasks RESTART IDENTITY CASCADE")
+		"TRUNCATE TABLE healing_events, worker_heartbeats, tasks, chaos_runs RESTART IDENTITY CASCADE")
 	if err != nil {
 		t.Fatalf("failed to clean database: %v", err)
 	}

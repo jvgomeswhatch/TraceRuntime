@@ -1,0 +1,89 @@
+name: Integration
+
+on:
+  pull_request:
+    branches: [main, developer]
+  push:
+    branches: [main, developer]
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    name: Infrastructure Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_ENDPOINT: http://localhost:4566
+      DATABASE_URL: postgres://traceruntime:traceruntime@localhost:5432/traceruntime?sslmode=disable
+
+    services:
+      localstack:
+        image: localstack/localstack:3.4
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: sqs,s3
+          DEFAULT_REGION: us-east-1
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 20s
+
+      postgres:
+        image: postgres:16-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: traceruntime
+          POSTGRES_USER: traceruntime
+          POSTGRES_PASSWORD: traceruntime
+        options: >-
+          --health-cmd "pg_isready -U traceruntime -d traceruntime"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.12.0"
+
+      - name: Terraform apply
+        run: |
+          terraform -chdir=infra/terraform init -input=false
+          terraform -chdir=infra/terraform apply -auto-approve
+        env:
+          TF_VAR_localstack_endpoint: ${{ env.LOCALSTACK_ENDPOINT }}
+
+      - name: Run migrations
+        run: |
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/infra/database/migrations:/migrations:ro \
+            migrate/migrate:v4.18.1 \
+            -path=/migrations \
+            -database="${DATABASE_URL}" \
+            up
+
+      - name: Smoke test
+        run: chmod +x ./scripts/smoke-test.sh && ./scripts/smoke-test.sh
+
+      - name: Validate database schema
+        run: |
+          docker run --rm --network host \
+            postgres:16-alpine \
+            psql "${DATABASE_URL}" \
+            -c "\dt" -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tasks' ORDER BY ordinal_position;"

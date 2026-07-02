@@ -55,6 +55,9 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	alertsHandler := handlers.NewAlertsHandler(database, broker)
 	r.Get("/api/alerts", tokenMw(http.HandlerFunc(alertsHandler.List)).ServeHTTP)
 	r.Post("/api/alerts/{id}/acknowledge", tokenMw(http.HandlerFunc(alertsHandler.Acknowledge)).ServeHTTP)
+	r.Options("/api/alerts/{id}/acknowledge", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	r.Get("/api/alerts/stats", tokenMw(http.HandlerFunc(alertsHandler.Stats)).ServeHTTP)
 
 	// Replay Task (Phase 11)

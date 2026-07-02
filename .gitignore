@@ -27,9 +27,22 @@ out/
 # Local env
 .env
 .env.*
+!.env.example
 
-# Claude Code
+# Secrets & credentials
+*.key
+*.pem
+*.p12
+*.pfx
+credentials*
+*credentials*
+*.secret
+
+# Claude Code / AI agents
 .claude/
+CLAUDE.md
+frontend/CLAUDE.md
+frontend/AGENTS.md
 
 # Terraform — state and ephemeral dirs are not committed
 # .terraform.lock.hcl IS committed (pins provider versions for reproducibility)
@@ -47,6 +60,6 @@ results/
 # Chaos testing
 .chaos.token
 
+# Propriedade intelectual — docs, plans, specs, roadmap
+docs/
 roadmap.md
-CLAUDE.md
-

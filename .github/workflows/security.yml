@@ -1,0 +1,216 @@
+# Security scanning pipeline for TraceRuntime
+# SAST (CodeQL), secret scanning (Gitleaks), dependency audits, and skill/agent analysis.
+
+name: Security
+
+on:
+  pull_request:
+    branches: [main, developer]
+  push:
+    branches: [main, developer]
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# ---------------------------------------------------------------------------
+# Job 1 — CodeQL static analysis (SAST)
+# ---------------------------------------------------------------------------
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, python]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: services/api/go.mod
+
+      - name: Setup Python
+        if: matrix.language == 'python'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Build Go services
+        if: matrix.language == 'go'
+        run: |
+          cd services/api     && go build ./...
+          cd ../worker        && go build ./...
+          cd ../watchdog      && go build ./...
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          upload: always
+          output: codeql-results
+
+  # ---------------------------------------------------------------------------
+  # Job 2 — Secret scanning with Gitleaks
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+
+  # ---------------------------------------------------------------------------
+  # Job 3 — Dependency vulnerability scanning
+  # ---------------------------------------------------------------------------
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: services/api/go.mod
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+
+      - name: Go dependency scan (govulncheck)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd services/api      && govulncheck ./...
+          cd ../worker         && govulncheck ./...
+          cd ../watchdog       && govulncheck ./...
+
+      - name: Python dependency scan (pip-audit)
+        run: |
+          pip install pip-audit
+          cd ai-runtime && pip install -r requirements.txt && pip-audit
+
+      - name: Node dependency scan (npm audit)
+        run: |
+          cd frontend && npm ci && npm audit --audit-level=high
+
+  # ---------------------------------------------------------------------------
+  # Job 4 — Dependency review (PRs only)
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Review new dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+
+  # ---------------------------------------------------------------------------
+  # Job 5 — SkillSpector scan for Claude skills/agents
+  # ---------------------------------------------------------------------------
+  skill-security-scan:
+    name: SkillSpector scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install SkillSpector
+        run: pip install git+https://github.com/NVIDIA/SkillSpector.git
+
+      - name: Scan skills
+        run: skillspector scan .claude/skills/ --no-llm --format sarif --output skillspector-skills.sarif || true
+
+      - name: Scan agents
+        run: skillspector scan .claude/agents/ --no-llm --format sarif --output skillspector-agents.sarif || true
+
+      - name: Upload SARIF — skills
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          sarif_file: skillspector-skills.sarif
+          category: skillspector-skills
+
+      - name: Upload SARIF — agents
+        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          sarif_file: skillspector-agents.sarif
+          category: skillspector-agents
+
+      - name: Console summary
+        if: always()
+        run: |
+          echo "=== SkillSpector Results ==="
+          echo "--- Skills ---"
+          if [ -f skillspector-skills.sarif ]; then
+            cat skillspector-skills.sarif | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for run in data.get('runs', []):
+              results = run.get('results', [])
+              print(f'  Findings: {len(results)}')
+              for r in results:
+                  print(f'    [{r.get(\"level\",\"note\")}] {r[\"message\"][\"text\"][:120]}')
+          " 2>/dev/null || echo "  (no parseable results)"
+          else
+            echo "  (no SARIF file produced)"
+          fi
+          echo "--- Agents ---"
+          if [ -f skillspector-agents.sarif ]; then
+            cat skillspector-agents.sarif | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for run in data.get('runs', []):
+              results = run.get('results', [])
+              print(f'  Findings: {len(results)}')
+              for r in results:
+                  print(f'    [{r.get(\"level\",\"note\")}] {r[\"message\"][\"text\"][:120]}')
+          " 2>/dev/null || echo "  (no parseable results)"
+          else
+            echo "  (no SARIF file produced)"
+          fi
