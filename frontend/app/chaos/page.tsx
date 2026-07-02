@@ -9,6 +9,7 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
+  Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -169,6 +170,20 @@ export default function ChaosPage() {
       }
     }
     setTrigger({ run_id: "", status: "idle" });
+  };
+
+  const deleteReport = async (reportId: string) => {
+    try {
+      const res = await fetch(
+        `${API_URL}/api/chaos/reports/${encodeURIComponent(reportId)}`,
+        { method: "DELETE", headers }
+      );
+      if (res.ok) {
+        setReports((prev) => prev.filter((r) => r.id !== reportId));
+      }
+    } catch {
+      /* ignore */
+    }
   };
 
   const triggerScenario = async () => {
@@ -370,13 +385,12 @@ export default function ChaosPage() {
       ) : (
         <div className="space-y-3">
           {reports.map((report) => (
-            <Link
+            <div
               key={report.id}
-              href={`/chaos/${report.id}`}
-              className="block rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 hover:border-zinc-700 transition-colors"
+              className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 hover:border-zinc-700 transition-colors"
             >
               <div className="flex items-start justify-between mb-2">
-                <div className="space-y-1.5 min-w-0 flex-1">
+                <Link href={`/chaos/${report.id}`} className="space-y-1.5 min-w-0 flex-1">
                   <div className="flex items-center gap-2.5">
                     <span className="text-xs font-mono text-zinc-200">
                       {report.id}
@@ -396,7 +410,14 @@ export default function ChaosPage() {
                       ` · ${formatDuration(report.duration_seconds)}`}
                     {` · ${report.summary.total} scenarios`}
                   </p>
-                </div>
+                </Link>
+                <button
+                  onClick={() => deleteReport(report.id)}
+                  className="ml-3 p-2 rounded-lg border border-zinc-700 bg-zinc-100 text-zinc-700 hover:text-red-500 hover:border-red-400 hover:bg-red-50 transition-colors"
+                  title="Delete report"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
               </div>
 
               <div className="flex items-center gap-3">
@@ -424,7 +445,7 @@ export default function ChaosPage() {
                   </span>
                 )}
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

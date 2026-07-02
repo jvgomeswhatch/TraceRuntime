@@ -96,6 +96,10 @@ func NewRouter(broker *event.Broker, publisher Publisher, q *queue.Queue, databa
 	chaosHandler := handlers.NewChaosHandler(chaosResultsDir, chaosRequestDir)
 	r.Get("/api/chaos/reports", tokenMw(http.HandlerFunc(chaosHandler.ListReports)).ServeHTTP)
 	r.Get("/api/chaos/reports/{reportId}", tokenMw(http.HandlerFunc(chaosHandler.GetReport)).ServeHTTP)
+	r.Delete("/api/chaos/reports/{reportId}", tokenMw(http.HandlerFunc(chaosHandler.DeleteReport)).ServeHTTP)
+	r.Options("/api/chaos/reports/{reportId}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	r.Post("/api/chaos/trigger", tokenMw(http.HandlerFunc(chaosHandler.Trigger)).ServeHTTP)
 	r.Options("/api/chaos/trigger", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

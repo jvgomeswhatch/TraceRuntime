@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -407,4 +409,84 @@ func (h *ChaosHandler) statusByRunID(w http.ResponseWriter, runID string) {
 	default:
 		jsonError(w, "run not found", http.StatusNotFound)
 	}
+}
+
+func (h *ChaosHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "reportId")
+	if !isValidReportID(id) {
+		jsonError(w, "invalid report id", http.StatusBadRequest)
+		return
+	}
+
+	reportPath := filepath.Clean(filepath.Join(h.resultsDir, id+".json"))
+	data, err := os.ReadFile(reportPath)
+	if errors.Is(err, os.ErrNotExist) {
+		jsonError(w, "report not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		jsonError(w, "failed to read report", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the suite report's mod time for time-window matching.
+	suiteInfo, err := os.Stat(reportPath)
+	if err != nil {
+		jsonError(w, "failed to stat report", http.StatusInternalServerError)
+		return
+	}
+	suiteModTime := suiteInfo.ModTime()
+
+	// Parse suite report to find scenario names.
+	var raw struct {
+		RunID     string `json:"run_id"`
+		Scenarios []struct {
+			Name string `json:"name"`
+		} `json:"scenarios"`
+	}
+	json.Unmarshal(data, &raw)
+
+	filesRemoved := 0
+
+	// Delete the suite report file itself.
+	if err := os.Remove(reportPath); err != nil {
+		jsonError(w, "failed to delete report", http.StatusInternalServerError)
+		return
+	}
+	filesRemoved++
+
+	// Delete individual scenario reports that belong to the same run.
+	// Scenario files are named chaos-{scenarioName}-*.json and must be
+	// within 1 hour of the suite report's modification time.
+	for _, s := range raw.Scenarios {
+		if s.Name == "" {
+			continue
+		}
+		// Normalize scenario name: replace spaces/underscores with hyphens, lowercase.
+		scenarioSlug := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(s.Name, " ", "-"), "_", "-"))
+		pattern := filepath.Join(h.resultsDir, "chaos-"+scenarioSlug+"-*.json")
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			info, err := os.Stat(m)
+			if err != nil {
+				continue
+			}
+			diff := math.Abs(info.ModTime().Sub(suiteModTime).Seconds())
+			if diff <= 3600 {
+				if os.Remove(m) == nil {
+					filesRemoved++
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"deleted":       true,
+		"report_id":     id,
+		"files_removed": filesRemoved,
+	})
 }
