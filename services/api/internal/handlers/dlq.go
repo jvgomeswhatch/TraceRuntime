@@ -108,7 +108,7 @@ func (h *DLQHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"messages":          messages,
 		"approximate_count": approxCount,
 	})
@@ -186,7 +186,7 @@ func (h *DLQHandler) Retry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 type deleteRequest struct {
@@ -231,7 +231,7 @@ func (h *DLQHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	h.broker.Publish(sseEvent)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":         "deleted",
 		"message_id":     chi.URLParam(r, "messageID"),
 		"audit_event_id": auditID,
@@ -268,7 +268,7 @@ func (h *DLQHandler) Purge(w http.ResponseWriter, r *http.Request) {
 	h.broker.Publish(sseEvent)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":              "purged",
 		"approximate_deleted": approxCount,
 		"audit_event_id":      auditID,
@@ -295,7 +295,7 @@ func (h *DLQHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Sscanf(attrOut.Attributes["ApproximateNumberOfMessagesNotVisible"], "%d", &approxNotVis)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"approximate_messages":    approxMsgs,
 		"approximate_not_visible": approxNotVis,
 	})
