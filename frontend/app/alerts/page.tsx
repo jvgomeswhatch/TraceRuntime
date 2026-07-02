@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Bell, Inbox, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -55,9 +55,34 @@ function timeAgo(iso: string): string {
 }
 
 function formatResolution(seconds: number): string {
-  if (seconds <= 0) return "—";
+  if (seconds <= 0) return "---";
   if (seconds < 60) return `${Math.floor(seconds)}s`;
   return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+}
+
+async function fetchAlertsApi(
+  statusFilter: string,
+  severityFilter: string,
+  typeFilter: string,
+  cursor?: string
+): Promise<{ alerts: Alert[]; next_cursor: string }> {
+  const params = new URLSearchParams({ status: statusFilter, limit: "50" });
+  if (severityFilter) params.set("severity", severityFilter);
+  if (typeFilter) params.set("event_type", typeFilter);
+  if (cursor) params.set("cursor", cursor);
+
+  const res = await fetch(`${API_URL}/api/alerts?${params}`, {
+    headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
+  });
+  const data = await res.json();
+  return { alerts: data.alerts || [], next_cursor: data.next_cursor || "" };
+}
+
+async function fetchStatsApi(): Promise<AlertStatsData> {
+  const res = await fetch(`${API_URL}/api/alerts/stats`, {
+    headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
+  });
+  return res.json();
 }
 
 export default function AlertsPage() {
@@ -70,42 +95,45 @@ export default function AlertsPage() {
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const fetchAlerts = useCallback(
-    async (append = false) => {
-      setLoading(true);
-      const params = new URLSearchParams({ status: statusFilter, limit: "50" });
-      if (severityFilter) params.set("severity", severityFilter);
-      if (typeFilter) params.set("event_type", typeFilter);
-      if (append && cursor) params.set("cursor", cursor);
-
-      const res = await fetch(`${API_URL}/api/alerts?${params}`, {
-        headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
-      });
-      const data = await res.json();
-      setAlerts(append ? (prev) => [...prev, ...(data.alerts || [])] : data.alerts || []);
-      setCursor(data.next_cursor || "");
-      setLoading(false);
-    },
-    [statusFilter, severityFilter, typeFilter, cursor]
-  );
-
-  const fetchStats = useCallback(async () => {
-    const res = await fetch(`${API_URL}/api/alerts/stats`, {
-      headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
-    });
-    const data = await res.json();
-    setStats(data);
-  }, []);
-
   useEffect(() => {
-    fetchAlerts();
-    fetchStats();
+    let cancelled = false;
+
+    async function doFetch() {
+      setLoading(true);
+      const result = await fetchAlertsApi(statusFilter, severityFilter, typeFilter);
+      if (!cancelled) {
+        setAlerts(result.alerts);
+        setCursor(result.next_cursor);
+        setLoading(false);
+      }
+    }
+
+    async function doFetchStats() {
+      const data = await fetchStatsApi();
+      if (!cancelled) setStats(data);
+    }
+
+    doFetch();
+    doFetchStats();
+
+    return () => { cancelled = true; };
   }, [statusFilter, severityFilter, typeFilter]);
 
   useEffect(() => {
-    const interval = setInterval(fetchStats, 10000);
+    const interval = setInterval(async () => {
+      const data = await fetchStatsApi();
+      setStats(data);
+    }, 10000);
     return () => clearInterval(interval);
-  }, [fetchStats]);
+  }, []);
+
+  const loadMore = async () => {
+    setLoading(true);
+    const result = await fetchAlertsApi(statusFilter, severityFilter, typeFilter, cursor);
+    setAlerts((prev) => [...prev, ...result.alerts]);
+    setCursor(result.next_cursor);
+    setLoading(false);
+  };
 
   const acknowledge = async (id: string) => {
     await fetch(`${API_URL}/api/alerts/${id}/acknowledge`, {
@@ -115,7 +143,8 @@ export default function AlertsPage() {
     setAlerts((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "acknowledged" } : a))
     );
-    fetchStats();
+    const data = await fetchStatsApi();
+    setStats(data);
   };
 
   const filtered = useMemo(() => {
@@ -311,7 +340,7 @@ export default function AlertsPage() {
       {cursor && (
         <div className="mt-4 flex justify-center">
           <button
-            onClick={() => fetchAlerts(true)}
+            onClick={loadMore}
             disabled={loading}
             className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 bg-zinc-900/60 rounded-lg px-4 py-2 transition-colors disabled:opacity-50"
           >

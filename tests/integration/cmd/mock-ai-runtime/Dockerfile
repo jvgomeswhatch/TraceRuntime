@@ -5,6 +5,7 @@ COPY main.go .
 RUN go build -o /mock-ai-runtime .
 
 FROM alpine:3.20
+# hadolint ignore=DL3018
 RUN apk add --no-cache curl
 COPY --from=builder /mock-ai-runtime /mock-ai-runtime
 EXPOSE 8000

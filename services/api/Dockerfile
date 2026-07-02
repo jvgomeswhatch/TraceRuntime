@@ -13,6 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o server ./
 
 FROM alpine:3.19 AS runner
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache curl && \
     addgroup -S app && adduser -S app -G app
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Inbox, RefreshCw, Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -20,51 +20,80 @@ interface DLQMessage {
   message_attributes: Record<string, string>;
 }
 
+const apiHeaders: Record<string, string> = TOKEN
+  ? { "X-Internal-Token": TOKEN }
+  : {};
+
+async function fetchMessagesApi(): Promise<{ messages: DLQMessage[]; approximate_count: number }> {
+  const res = await fetch(`${API_URL}/api/dlq/messages`, { headers: apiHeaders });
+  const data = await res.json();
+  return { messages: data.messages || [], approximate_count: data.approximate_count || 0 };
+}
+
+async function fetchStatsApi(): Promise<number> {
+  const res = await fetch(`${API_URL}/api/dlq/stats`, { headers: apiHeaders });
+  const data = await res.json();
+  return data.approximate_messages || 0;
+}
+
 export default function DLQPage() {
   const [messages, setMessages] = useState<DLQMessage[]>([]);
   const [approxCount, setApproxCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [purgeDisabled, setPurgeDisabled] = useState(false);
 
-  const fetchMessages = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false;
+
+    async function doFetch() {
+      setLoading(true);
+      try {
+        const result = await fetchMessagesApi();
+        if (!cancelled) {
+          setMessages(result.messages);
+          setApproxCount(result.approximate_count);
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!cancelled) setLoading(false);
+    }
+
+    doFetch();
+
+    const interval = setInterval(async () => {
+      try {
+        const count = await fetchStatsApi();
+        if (!cancelled) setApproxCount(count);
+      } catch {
+        /* ignore */
+      }
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const refreshMessages = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/dlq/messages`, {
-        headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
-      });
-      const data = await res.json();
-      setMessages(data.messages || []);
-      setApproxCount(data.approximate_count || 0);
+      const result = await fetchMessagesApi();
+      setMessages(result.messages);
+      setApproxCount(result.approximate_count);
     } catch {
       /* ignore */
     }
     setLoading(false);
-  }, []);
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/dlq/stats`, {
-        headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
-      });
-      const data = await res.json();
-      setApproxCount(data.approximate_messages || 0);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchMessages();
-    const interval = setInterval(fetchStats, 10000);
-    return () => clearInterval(interval);
-  }, [fetchMessages, fetchStats]);
+  };
 
   const retryMessage = async (msg: DLQMessage) => {
     try {
       await fetch(`${API_URL}/api/dlq/messages/${msg.message_id}/retry`, {
         method: "POST",
         headers: {
-          ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
+          ...apiHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -85,7 +114,7 @@ export default function DLQPage() {
       await fetch(`${API_URL}/api/dlq/messages/${msg.message_id}`, {
         method: "DELETE",
         headers: {
-          ...(TOKEN ? { "X-Internal-Token": TOKEN } : {}),
+          ...apiHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -106,7 +135,7 @@ export default function DLQPage() {
     try {
       await fetch(`${API_URL}/api/dlq/purge`, {
         method: "POST",
-        headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
+        headers: apiHeaders,
       });
       setMessages([]);
       setPurgeDisabled(true);
@@ -125,7 +154,7 @@ export default function DLQPage() {
             DLQ Explorer
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">
-            Dead letter queue — failed messages awaiting action
+            Dead letter queue --- failed messages awaiting action
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -138,7 +167,7 @@ export default function DLQPage() {
             {purgeDisabled ? "Wait 60s" : "Delete All"}
           </button>
           <button
-            onClick={fetchMessages}
+            onClick={refreshMessages}
             disabled={loading}
             className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 bg-zinc-900/60 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
           >

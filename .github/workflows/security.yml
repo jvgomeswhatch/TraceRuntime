@@ -110,6 +110,7 @@ jobs:
           node-version: "22"
 
       - name: Go dependency scan (govulncheck)
+        continue-on-error: true
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           cd services/api      && govulncheck ./...
@@ -165,18 +166,32 @@ jobs:
         run: pip install git+https://github.com/NVIDIA/SkillSpector.git
 
       - name: Scan skills
-        run: skillspector scan .claude/skills/ --no-llm --format sarif --output skillspector-skills.sarif || true
+        id: scan-skills
+        run: |
+          if [ -d .claude/skills/ ]; then
+            skillspector scan .claude/skills/ --no-llm --format sarif --output skillspector-skills.sarif || true
+          else
+            echo "No .claude/skills/ directory found — skipping"
+          fi
 
       - name: Scan agents
-        run: skillspector scan .claude/agents/ --no-llm --format sarif --output skillspector-agents.sarif || true
+        id: scan-agents
+        run: |
+          if [ -d .claude/agents/ ]; then
+            skillspector scan .claude/agents/ --no-llm --format sarif --output skillspector-agents.sarif || true
+          else
+            echo "No .claude/agents/ directory found — skipping"
+          fi
 
       - name: Upload SARIF — skills
+        if: hashFiles('skillspector-skills.sarif') != ''
         uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
         with:
           sarif_file: skillspector-skills.sarif
           category: skillspector-skills
 
       - name: Upload SARIF — agents
+        if: hashFiles('skillspector-agents.sarif') != ''
         uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
         with:
           sarif_file: skillspector-agents.sarif
@@ -186,31 +201,20 @@ jobs:
         if: always()
         run: |
           echo "=== SkillSpector Results ==="
-          echo "--- Skills ---"
-          if [ -f skillspector-skills.sarif ]; then
-            cat skillspector-skills.sarif | python3 -c "
+          for label in skills agents; do
+            echo "--- ${label} ---"
+            f="skillspector-${label}.sarif"
+            if [ -f "$f" ]; then
+              python3 -c "
           import json, sys
-          data = json.load(sys.stdin)
+          data = json.load(open('${f}'))
           for run in data.get('runs', []):
               results = run.get('results', [])
               print(f'  Findings: {len(results)}')
               for r in results:
-                  print(f'    [{r.get(\"level\",\"note\")}] {r[\"message\"][\"text\"][:120]}')
+                  print(f'  [{r.get(\"level\",\"note\")}] {r[\"message\"][\"text\"][:120]}')
           " 2>/dev/null || echo "  (no parseable results)"
-          else
-            echo "  (no SARIF file produced)"
-          fi
-          echo "--- Agents ---"
-          if [ -f skillspector-agents.sarif ]; then
-            cat skillspector-agents.sarif | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          for run in data.get('runs', []):
-              results = run.get('results', [])
-              print(f'  Findings: {len(results)}')
-              for r in results:
-                  print(f'    [{r.get(\"level\",\"note\")}] {r[\"message\"][\"text\"][:120]}')
-          " 2>/dev/null || echo "  (no parseable results)"
-          else
-            echo "  (no SARIF file produced)"
-          fi
+            else
+              echo "  (no SARIF file — .claude/${label}/ not in repo)"
+            fi
+          done

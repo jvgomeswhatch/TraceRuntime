@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -156,6 +156,15 @@ function buildSpanRows(spans: TraceSpan[]): SpanRow[] {
   return rows;
 }
 
+async function fetchTraceApi(tid: string, signal?: AbortSignal): Promise<TraceDetailResponse> {
+  const token = process.env.NEXT_PUBLIC_INTERNAL_TOKEN;
+  const headers: HeadersInit = token ? { "X-Internal-Token": token } : {};
+  const res = await fetch(`${API_BASE}/api/traces/${tid}`, { signal, headers });
+  if (res.status === 404) throw new Error("Trace not found");
+  if (!res.ok) throw new Error(`API returned ${res.status}`);
+  return res.json() as Promise<TraceDetailResponse>;
+}
+
 export default function TraceDetailPage() {
   const params = useParams<{ traceId: string }>();
   const traceId = params.traceId;
@@ -164,62 +173,55 @@ export default function TraceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchTrace = useCallback(async (signal?: AbortSignal) => {
-    const token = process.env.NEXT_PUBLIC_INTERNAL_TOKEN;
-    const headers: HeadersInit = token ? { "X-Internal-Token": token } : {};
-    const res = await fetch(`${API_BASE}/api/traces/${traceId}`, { signal, headers });
-    if (res.status === 404) throw new Error("Trace not found");
-    if (!res.ok) throw new Error(`API returned ${res.status}`);
-    return res.json();
-  }, [traceId]);
 
   useEffect(() => {
     if (!traceId) return;
 
     const controller = new AbortController();
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
 
-    fetchTrace(controller.signal)
-      .then((json) => {
-        if (!controller.signal.aborted) {
+    async function doFetch() {
+      setLoading(true);
+      setError(null);
+      try {
+        const json = await fetchTraceApi(traceId, controller.signal);
+        if (!cancelled) {
           setData(json);
           setLoading(false);
         }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setError(err.message);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
           setLoading(false);
         }
-      });
-
-    return () => controller.abort();
-  }, [traceId, fetchTrace]);
-
-  useEffect(() => {
-    const isTerminal = data?.task?.status === "completed" || data?.task?.status === "failed";
-    if (!data || isTerminal) {
-      if (pollRef.current) clearInterval(pollRef.current);
-      return;
+      }
     }
 
-    pollRef.current = setInterval(() => {
-      fetchTrace().then(setData).catch(() => {});
-    }, 5_000);
+    doFetch();
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      cancelled = true;
+      controller.abort();
     };
-  }, [data, fetchTrace]);
+  }, [traceId]);
 
-  const spans = data?.spans ?? [];
-  const services = data?.services ?? [];
+  const taskStatus = data?.task?.status;
+
+  useEffect(() => {
+    const isTerminal = taskStatus === "completed" || taskStatus === "failed";
+    if (!data || isTerminal || !traceId) return;
+
+    const interval = setInterval(() => {
+      fetchTraceApi(traceId).then(setData).catch(() => {});
+    }, 5_000);
+
+    return () => clearInterval(interval);
+  }, [data, taskStatus, traceId]);
+
+  const spans = data?.spans;
 
   const spanRows = useMemo(() => {
-    if (spans.length === 0) return [];
+    if (!spans || spans.length === 0) return [];
     return buildSpanRows(spans);
   }, [spans]);
 
@@ -257,12 +259,14 @@ export default function TraceDetailPage() {
   if (!data) return null;
 
   const task = data.task;
-  const taskStatus = task?.status ?? "unknown";
+  const displayStatus = task?.status ?? "unknown";
+  const spansArr = data.spans ?? [];
+  const servicesArr = data.services ?? [];
   const totalDurationNano = (() => {
     if (spanRows.length > 0) {
       return (
-        Math.max(...spans.map((s) => s.start_time_unix_nano + s.duration_nano)) -
-        Math.min(...spans.map((s) => s.start_time_unix_nano))
+        Math.max(...spansArr.map((s) => s.start_time_unix_nano + s.duration_nano)) -
+        Math.min(...spansArr.map((s) => s.start_time_unix_nano))
       );
     }
     if (task?.processing_started_at && task?.completed_at) {
@@ -298,19 +302,19 @@ export default function TraceDetailPage() {
         {task && (
           <div
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
-              taskStatus === "completed"
+              displayStatus === "completed"
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                : taskStatus === "failed"
+                : displayStatus === "failed"
                   ? "border-red-500/30 bg-red-500/10 text-red-400"
                   : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
             }`}
           >
-            {taskStatus === "completed" && <CheckCircle2 className="size-3.5" />}
-            {taskStatus === "failed" && <XCircle className="size-3.5" />}
-            {taskStatus === "processing" && (
+            {displayStatus === "completed" && <CheckCircle2 className="size-3.5" />}
+            {displayStatus === "failed" && <XCircle className="size-3.5" />}
+            {displayStatus === "processing" && (
               <Loader2 className="size-3.5 animate-spin" />
             )}
-            {taskStatus.charAt(0).toUpperCase() + taskStatus.slice(1)}
+            {displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
           </div>
         )}
       </header>
@@ -326,7 +330,7 @@ export default function TraceDetailPage() {
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
         <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 overflow-hidden">
-          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(taskStatus)}`} />
+          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(displayStatus)}`} />
           <div className="flex items-center gap-2 text-zinc-400 mb-3">
             <GitBranch className="size-4" />
             <span className="text-sm font-medium">Trace ID</span>
@@ -335,7 +339,7 @@ export default function TraceDetailPage() {
         </div>
 
         <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 overflow-hidden">
-          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(taskStatus)}`} />
+          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(displayStatus)}`} />
           <div className="flex items-center gap-2 text-zinc-400 mb-3">
             <Clock className="size-4" />
             <span className="text-sm font-medium">Duration</span>
@@ -346,23 +350,23 @@ export default function TraceDetailPage() {
         </div>
 
         <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 overflow-hidden">
-          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(taskStatus)}`} />
+          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(displayStatus)}`} />
           <div className="flex items-center gap-2 text-zinc-400 mb-3">
             <Layers className="size-4" />
             <span className="text-sm font-medium">Spans</span>
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-2xl font-bold tabular-nums ${spans.length > 0 ? "text-emerald-400" : "text-zinc-500"}`}>
-              {spans.length}
+            <span className={`text-2xl font-bold tabular-nums ${spansArr.length > 0 ? "text-emerald-400" : "text-zinc-500"}`}>
+              {spansArr.length}
             </span>
             <span className="text-zinc-500 text-xs">
-              · {services.length} service{services.length !== 1 ? "s" : ""}
+              · {servicesArr.length} service{servicesArr.length !== 1 ? "s" : ""}
             </span>
           </div>
         </div>
 
         <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 overflow-hidden">
-          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(taskStatus)}`} />
+          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(displayStatus)}`} />
           <div className="flex items-center gap-2 text-zinc-400 mb-3">
             <Cpu className="size-4" />
             <span className="text-sm font-medium">Model</span>
@@ -379,9 +383,9 @@ export default function TraceDetailPage() {
       </div>
 
       {/* Service Legend */}
-      {services.length > 0 && (
+      {servicesArr.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 mb-3 px-1">
-          {services.map((svc) => (
+          {servicesArr.map((svc) => (
             <div key={svc} className="flex items-center gap-1.5">
               <span className={`size-2.5 rounded-full ${serviceColor(svc)}`} />
               <span className="text-xs text-zinc-400">{svc}</span>
@@ -393,7 +397,7 @@ export default function TraceDetailPage() {
       {/* Waterfall */}
       {spanRows.length > 0 ? (
         <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 overflow-hidden mb-3">
-          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(taskStatus)}`} />
+          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(displayStatus)}`} />
           <div className="px-5 py-3 border-b border-zinc-800/60 flex items-center gap-2">
             <Layers className="size-4 text-zinc-400" />
             <span className="text-sm font-medium text-zinc-400">Span Waterfall</span>
@@ -506,7 +510,7 @@ export default function TraceDetailPage() {
       {/* Task Details */}
       {task && (
         <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 overflow-hidden">
-          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(taskStatus)}`} />
+          <div className={`absolute top-0 left-0 right-0 h-[2px] ${statusAccentBar(displayStatus)}`} />
           <div className="px-5 py-3 border-b border-zinc-800/60 flex items-center gap-2">
             <Cpu className="size-4 text-zinc-400" />
             <span className="text-sm font-medium text-zinc-400">Task Details</span>

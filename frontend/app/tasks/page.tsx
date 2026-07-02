@@ -66,9 +66,23 @@ function statusBadgeClass(status: string): string {
 }
 
 function formatDuration(ms: number | undefined): string {
-  if (!ms || ms <= 0) return "—";
+  if (!ms || ms <= 0) return "---";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
+}
+
+async function fetchTasksApi(p: number, status: string): Promise<TaskListResponse> {
+  const params = new URLSearchParams({
+    page: String(p),
+    page_size: String(PAGE_SIZE),
+  });
+  if (status !== "all") params.set("status", status);
+
+  const res = await fetch(`${API_URL}/api/tasks/list?${params}`, {
+    headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
+  });
+  if (!res.ok) return { tasks: [], total: 0, page: p, page_size: PAGE_SIZE };
+  return res.json();
 }
 
 function CopyCell({ text }: { text: string }) {
@@ -196,35 +210,44 @@ export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [replayTarget, setReplayTarget] = useState<string | null>(null);
 
-  const fetchTasks = useCallback(async (p: number, status: string) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        page: String(p),
-        page_size: String(PAGE_SIZE),
-      });
-      if (status !== "all") params.set("status", status);
-
-      const res = await fetch(`${API_URL}/api/tasks/list?${params}`, {
-        headers: TOKEN ? { "X-Internal-Token": TOKEN } : {},
-      });
-      if (res.ok) {
-        const data: TaskListResponse = await res.json();
-        setTasks(data.tasks || []);
-        setTotal(data.total);
-        setPage(data.page);
-      }
-    } catch {
-      /* ignore */
-    }
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    fetchTasks(page, statusFilter);
-    const interval = setInterval(() => fetchTasks(page, statusFilter), 10_000);
-    return () => clearInterval(interval);
-  }, [fetchTasks, page, statusFilter]);
+    let cancelled = false;
+
+    async function doFetch() {
+      setLoading(true);
+      try {
+        const data = await fetchTasksApi(page, statusFilter);
+        if (!cancelled) {
+          setTasks(data.tasks || []);
+          setTotal(data.total);
+          setPage(data.page);
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!cancelled) setLoading(false);
+    }
+
+    doFetch();
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await fetchTasksApi(page, statusFilter);
+        if (!cancelled) {
+          setTasks(data.tasks || []);
+          setTotal(data.total);
+          setPage(data.page);
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 10_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [page, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -270,7 +293,7 @@ export default function TasksPage() {
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
           <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Showing</p>
           <p className="text-lg font-semibold text-zinc-100 tabular-nums">
-            {total > 0 ? `${rangeStart}–${rangeEnd}` : "0"} <span className="text-xs text-zinc-500 font-normal">of {total}</span>
+            {total > 0 ? `${rangeStart}--${rangeEnd}` : "0"} <span className="text-xs text-zinc-500 font-normal">of {total}</span>
           </p>
         </div>
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
@@ -368,7 +391,7 @@ export default function TasksPage() {
                     </Badge>
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 font-mono">
-                    {task.model || "—"}
+                    {task.model || "---"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {formatDuration(task.duration_ms)}
@@ -376,12 +399,12 @@ export default function TasksPage() {
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {task.prompt_tokens || task.completion_tokens
                       ? `${(task.prompt_tokens ?? 0) + (task.completion_tokens ?? 0)}`
-                      : "—"}
+                      : "---"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {task.tokens_per_second
                       ? task.tokens_per_second.toFixed(1)
-                      : "—"}
+                      : "---"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-500 tabular-nums text-right">
                     {new Date(task.created_at).toLocaleTimeString()}
@@ -408,7 +431,7 @@ export default function TasksPage() {
       {totalPages > 1 && (
         <div className="mt-4 flex items-center justify-between">
           <p className="text-xs text-zinc-500">
-            Showing {rangeStart}–{rangeEnd} of {total} tasks
+            Showing {rangeStart}--{rangeEnd} of {total} tasks
           </p>
           <div className="flex items-center gap-1">
             <button
