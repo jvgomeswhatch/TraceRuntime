@@ -141,7 +141,7 @@ func parseNano(v any) int64 {
 		return i
 	case string:
 		var i int64
-		fmt.Sscanf(n, "%d", &i)
+		_, _ = fmt.Sscanf(n, "%d", &i)
 		return i
 	default:
 		return 0

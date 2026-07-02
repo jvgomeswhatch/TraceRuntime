@@ -141,7 +141,7 @@ func (h *ReplayHandler) checkQueueDepth(ctx context.Context) error {
 		return nil
 	}
 	var depth int
-	fmt.Sscanf(out.Attributes["ApproximateNumberOfMessages"], "%d", &depth)
+	_, _ = fmt.Sscanf(out.Attributes["ApproximateNumberOfMessages"], "%d", &depth)
 	if depth >= 100 {
 		return fmt.Errorf("queue full")
 	}

@@ -105,7 +105,7 @@ func (h *ChaosHandler) ListReports(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"reports": reports,
 		"total":   len(reports),
 	})
@@ -201,7 +201,7 @@ func (h *ChaosHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":   "queued",
 		"run_id":   runID,
 		"scenario": req.Scenario,
@@ -229,7 +229,7 @@ func (h *ChaosHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"run_id": runID,
 		"status": "cancelled",
 	})
@@ -297,7 +297,7 @@ func (h *ChaosHandler) statusGlobal(w http.ResponseWriter) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"run_id":    req.RunID,
 			"status":    status.state,
 			"scenario":  req.Scenario,
@@ -308,7 +308,7 @@ func (h *ChaosHandler) statusGlobal(w http.ResponseWriter) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "idle",
 	})
 }
@@ -384,7 +384,7 @@ func (h *ChaosHandler) statusByRunID(w http.ResponseWriter, runID string) {
 	switch status.state {
 	case "completed", "failed":
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"run_id":     runID,
 			"status":     status.state,
 			"scenario":   req.Scenario,
@@ -398,7 +398,7 @@ func (h *ChaosHandler) statusByRunID(w http.ResponseWriter, runID string) {
 			command = fmt.Sprintf("make chaos SCENARIO=%s", req.Scenario)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"run_id":    runID,
 			"status":    "queued",
 			"scenario":  req.Scenario,
@@ -484,7 +484,7 @@ func (h *ChaosHandler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"deleted":       true,
 		"report_id":     id,
 		"files_removed": filesRemoved,
