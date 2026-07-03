@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 log = logging.getLogger(__name__)
 
-INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "disabled")
+INTERNAL_TOKEN = os.getenv("CHAOS_INTERNAL_TOKEN", "disabled")
 CHAOS_ENABLED = os.getenv("CHAOS_ENABLED", "false").lower() == "true"
 
 
@@ -98,5 +98,5 @@ async def reset_config(request: Request):
 def validate_chaos_startup():
     if CHAOS_ENABLED and (INTERNAL_TOKEN == "disabled" or len(INTERNAL_TOKEN) < 32):
         raise RuntimeError(
-            "CHAOS_ENABLED=true requires INTERNAL_TOKEN with at least 32 characters"
+            "CHAOS_ENABLED=true requires CHAOS_INTERNAL_TOKEN with at least 32 characters"
         )

@@ -240,16 +240,16 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_HOST=http://host.docker.internal:11434
       - CHAOS_ENABLED=${CHAOS_ENABLED:-false}
-      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-disabled}
+      - CHAOS_INTERNAL_TOKEN=${CHAOS_INTERNAL_TOKEN:-disabled}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [traceruntime]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 10s
     restart: unless-stopped
     init: true
     stop_grace_period: 10s

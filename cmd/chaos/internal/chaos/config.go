@@ -41,7 +41,7 @@ func ParseConfig() Config {
 	flag.StringVar(&cfg.SQSEndpoint, "sqs-endpoint", envOrDefault("SQS_ENDPOINT", "http://localhost:4566"), "LocalStack SQS endpoint")
 	flag.StringVar(&cfg.SQSQueueURL, "sqs-queue-url", envOrDefault("SQS_QUEUE_URL", "http://localhost:4566/000000000000/traceruntime-tasks"), "Main queue URL")
 	flag.StringVar(&cfg.SQSDlqURL, "sqs-dlq-url", envOrDefault("SQS_DLQ_URL", "http://localhost:4566/000000000000/traceruntime-tasks-dlq"), "DLQ URL")
-	flag.StringVar(&cfg.InternalToken, "internal-token", envOrDefault("INTERNAL_TOKEN", ""), "Token for /internal/chaos/* endpoints")
+	flag.StringVar(&cfg.InternalToken, "internal-token", envOrDefault("CHAOS_INTERNAL_TOKEN", ""), "Token for /internal/chaos/* endpoints")
 	flag.StringVar(&cfg.OutputDir, "output-dir", envOrDefault("CHAOS_OUTPUT_DIR", "results"), "Report output directory")
 	flag.DurationVar(&cfg.GlobalTimeout, "timeout", parseDurationOrDefault("CHAOS_TIMEOUT", 45*time.Minute), "Global suite timeout")
 	flag.DurationVar(&cfg.PollInterval, "poll-interval", parseDurationOrDefault("CHAOS_POLL_INTERVAL", 2*time.Second), "Default polling interval")

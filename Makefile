@@ -200,11 +200,15 @@ chaos-up:
 	@openssl rand -hex 32 > .chaos.token
 	docker network create traceruntime 2>/dev/null || true
 	docker compose -f infra/observability/docker-compose.yml up -d
-	CHAOS_ENABLED=true INTERNAL_TOKEN=$$(cat .chaos.token) \
+	CHAOS_ENABLED=true CHAOS_INTERNAL_TOKEN=$$(cat .chaos.token) \
 		docker compose --profile full up -d
+	@aws --endpoint-url=http://localhost:4566 sqs purge-queue \
+		--queue-url http://localhost:4566/000000000000/traceruntime-tasks-dlq 2>/dev/null || true
 	@echo "Chaos token persisted to .chaos.token"
 
 chaos-down:
+	@aws --endpoint-url=http://localhost:4566 sqs purge-queue \
+		--queue-url http://localhost:4566/000000000000/traceruntime-tasks-dlq 2>/dev/null || true
 	docker compose --profile full down
 	docker compose -f infra/observability/docker-compose.yml down
 	@rm -f .chaos.token
@@ -224,7 +228,7 @@ else
 	@test -f .chaos.token || (echo "ERROR: .chaos.token not found. Run 'make chaos-up' first." && exit 1)
 	$(eval CHAOS_SCENARIO := $(or $(SCENARIO),all))
 	$(eval CHAOS_RUN_ID := $(or $(RUN_ID),chaos-$(CHAOS_SCENARIO)-$(shell date +%Y%m%d-%H%M%S)))
-	cd cmd/chaos && INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
+	cd cmd/chaos && CHAOS_INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
 		--output-dir=../../$(or $(OUTPUT_DIR),results) \
 		$(if $(SCENARIO),--scenario=$(SCENARIO),) \
 		--run-id=$(CHAOS_RUN_ID)

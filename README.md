@@ -180,7 +180,7 @@ make chaos-down                      # Stop chaos environment
 make chaos-reset                     # Destroy volumes + bootstrap from scratch
 ```
 
-> **Do not run `make chaos` against services started with `make up`.** The AI Runtime must be started with `CHAOS_ENABLED=true` and a valid `INTERNAL_TOKEN` (32+ chars) for chaos endpoints to be available.
+> **Do not run `make chaos` against services started with `make up`.** The AI Runtime must be started with `CHAOS_ENABLED=true` and a valid `CHAOS_INTERNAL_TOKEN` (32+ chars) for chaos endpoints to be available. This token is separate from `INTERNAL_TOKEN` (used by the API for operational endpoints) so the dashboard remains functional during chaos testing.
 
 ## Services
 
