@@ -13,7 +13,7 @@ TOKEN = "a" * 32
 def _build_app(chaos_enabled: bool):
     """Build a fresh FastAPI app with chaos_config reloaded."""
     os.environ["CHAOS_ENABLED"] = str(chaos_enabled).lower()
-    os.environ["INTERNAL_TOKEN"] = TOKEN
+    os.environ["CHAOS_INTERNAL_TOKEN"] = TOKEN
 
     import chaos_config
     importlib.reload(chaos_config)
@@ -148,7 +148,7 @@ class TestChaosValidToken:
 class TestStartupValidation:
     def test_short_token_raises(self):
         os.environ["CHAOS_ENABLED"] = "true"
-        os.environ["INTERNAL_TOKEN"] = "short"
+        os.environ["CHAOS_INTERNAL_TOKEN"] = "short"
 
         import chaos_config
         importlib.reload(chaos_config)
@@ -158,7 +158,7 @@ class TestStartupValidation:
 
     def test_disabled_token_raises(self):
         os.environ["CHAOS_ENABLED"] = "true"
-        os.environ["INTERNAL_TOKEN"] = "disabled"
+        os.environ["CHAOS_INTERNAL_TOKEN"] = "disabled"
 
         import chaos_config
         importlib.reload(chaos_config)

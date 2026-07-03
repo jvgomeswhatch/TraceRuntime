@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDurationMs } from "@/lib/format";
 import {
   ListTodo,
   CheckCircle2,
@@ -67,8 +68,7 @@ function statusBadgeClass(status: string): string {
 
 function formatDuration(ms: number | undefined): string {
   if (!ms || ms <= 0) return "---";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
+  return formatDurationMs(ms);
 }
 
 async function fetchTasksApi(p: number, status: string): Promise<TaskListResponse> {
@@ -293,7 +293,7 @@ export default function TasksPage() {
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
           <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Showing</p>
           <p className="text-lg font-semibold text-zinc-100 tabular-nums">
-            {total > 0 ? `${rangeStart}--${rangeEnd}` : "0"} <span className="text-xs text-zinc-500 font-normal">of {total}</span>
+            {total > 0 ? `${rangeStart}–${rangeEnd}` : "0"} <span className="text-xs text-zinc-500 font-normal">of {total}</span>
           </p>
         </div>
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-3">
@@ -431,7 +431,7 @@ export default function TasksPage() {
       {totalPages > 1 && (
         <div className="mt-4 flex items-center justify-between">
           <p className="text-xs text-zinc-500">
-            Showing {rangeStart}--{rangeEnd} of {total} tasks
+            Showing {rangeStart}–{rangeEnd} of {total} tasks
           </p>
           <div className="flex items-center gap-1">
             <button

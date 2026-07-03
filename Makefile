@@ -79,8 +79,29 @@ reset:
 	docker network rm traceruntime 2>/dev/null || true
 	$(MAKE) bootstrap
 
+# clean wipes all data (DB, SQS, S3, results) without touching containers or infra
+clean:
+	@echo "Cleaning PostgreSQL..."
+	@docker exec traceruntime-postgres-1 psql -U traceruntime -d traceruntime -c \
+		"TRUNCATE tasks, healing_events, worker_heartbeats, chaos_runs CASCADE" 2>/dev/null \
+		&& echo "  tables truncated" || echo "  SKIP (postgres not running)"
+	@echo "Purging SQS queues..."
+	@docker exec traceruntime-localstack-1 awslocal sqs purge-queue \
+		--queue-url http://localstack:4566/000000000000/traceruntime-tasks 2>/dev/null \
+		&& echo "  tasks queue purged" || echo "  SKIP (localstack not running)"
+	@docker exec traceruntime-localstack-1 awslocal sqs purge-queue \
+		--queue-url http://localstack:4566/000000000000/traceruntime-tasks-dlq 2>/dev/null \
+		&& echo "  DLQ purged" || echo "  SKIP"
+	@echo "Clearing S3 bucket..."
+	@docker exec traceruntime-localstack-1 awslocal s3 rm s3://traceruntime-outputs --recursive 2>/dev/null \
+		&& echo "  bucket cleared" || echo "  SKIP (localstack not running)"
+	@echo "Removing local results..."
+	@rm -f results/loadtest-*.json results/chaos-suite-*.json
+	@rm -f results/chaos-requests/*.json
+	@echo "Clean complete."
+
 # ── Operations ─────────────────────────────────────────────────────────────────
-.PHONY: ps logs health queue-stats
+.PHONY: ps logs health queue-stats clean
 
 ps:
 	docker compose --profile no-ai ps
@@ -179,11 +200,15 @@ chaos-up:
 	@openssl rand -hex 32 > .chaos.token
 	docker network create traceruntime 2>/dev/null || true
 	docker compose -f infra/observability/docker-compose.yml up -d
-	CHAOS_ENABLED=true INTERNAL_TOKEN=$$(cat .chaos.token) \
+	CHAOS_ENABLED=true CHAOS_INTERNAL_TOKEN=$$(cat .chaos.token) \
 		docker compose --profile full up -d
+	@aws --endpoint-url=http://localhost:4566 sqs purge-queue \
+		--queue-url http://localhost:4566/000000000000/traceruntime-tasks-dlq 2>/dev/null || true
 	@echo "Chaos token persisted to .chaos.token"
 
 chaos-down:
+	@aws --endpoint-url=http://localhost:4566 sqs purge-queue \
+		--queue-url http://localhost:4566/000000000000/traceruntime-tasks-dlq 2>/dev/null || true
 	docker compose --profile full down
 	docker compose -f infra/observability/docker-compose.yml down
 	@rm -f .chaos.token
@@ -203,7 +228,7 @@ else
 	@test -f .chaos.token || (echo "ERROR: .chaos.token not found. Run 'make chaos-up' first." && exit 1)
 	$(eval CHAOS_SCENARIO := $(or $(SCENARIO),all))
 	$(eval CHAOS_RUN_ID := $(or $(RUN_ID),chaos-$(CHAOS_SCENARIO)-$(shell date +%Y%m%d-%H%M%S)))
-	cd cmd/chaos && INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
+	cd cmd/chaos && CHAOS_INTERNAL_TOKEN=$$(cat ../../.chaos.token) go run . \
 		--output-dir=../../$(or $(OUTPUT_DIR),results) \
 		$(if $(SCENARIO),--scenario=$(SCENARIO),) \
 		--run-id=$(CHAOS_RUN_ID)

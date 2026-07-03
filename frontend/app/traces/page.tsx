@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { formatDurationMs } from "@/lib/format";
 import {
   GitBranch,
   Inbox,
@@ -116,7 +117,7 @@ export default function TracesPage() {
         );
 
         const evWithTimestamps = sorted.find((e) => e.processing_started_at && e.completed_at);
-        const totalDuration =
+        const rawDuration =
           evWithTimestamps?.processing_started_at && evWithTimestamps?.completed_at
             ? new Date(evWithTimestamps.completed_at).getTime() -
               new Date(evWithTimestamps.processing_started_at).getTime()
@@ -124,6 +125,7 @@ export default function TracesPage() {
               ? new Date(completedEv.timestamp).getTime() -
                 new Date(createdEv.timestamp).getTime()
               : null;
+        const totalDuration = rawDuration !== null ? Math.max(rawDuration, 0) : null;
 
         return {
           trace_id,
@@ -264,9 +266,7 @@ export default function TracesPage() {
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-400 tabular-nums text-right">
                     {trace.totalDuration !== null
-                      ? trace.totalDuration < 1000
-                        ? `${trace.totalDuration}ms`
-                        : `${(trace.totalDuration / 1000).toFixed(2)}s`
+                      ? formatDurationMs(trace.totalDuration)
                       : "—"}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-500 tabular-nums text-right">

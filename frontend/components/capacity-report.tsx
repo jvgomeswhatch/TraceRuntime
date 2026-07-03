@@ -18,18 +18,7 @@ import type {
   CapacityReport as CapacityReportType,
   CapacityLatencyBucket,
 } from "@/lib/types";
-
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}m ${s}s`;
-}
+import { formatDurationMs, formatDurationSec, formatThroughput, formatPercent, formatTimestamp } from "@/lib/format";
 
 function statusBadgeClass(status: CapacityReportType["status"]): string {
   switch (status) {
@@ -62,13 +51,13 @@ const LatencyRow = React.memo(function LatencyRow({
         </span>
       </td>
       <td className="py-2 px-2 text-[11px] text-zinc-400 tabular-nums text-right">
-        {formatMs(bucket.p50)}
+        {formatDurationMs(bucket.p50)}
       </td>
       <td className="py-2 px-2 text-[11px] text-amber-400 tabular-nums text-right font-medium">
-        {formatMs(bucket.p95)}
+        {formatDurationMs(bucket.p95)}
       </td>
       <td className="py-2 pl-2 text-[11px] text-red-400 tabular-nums text-right font-medium">
-        {formatMs(bucket.p99)}
+        {formatDurationMs(bucket.p99)}
       </td>
     </tr>
   );
@@ -158,8 +147,7 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
       ? (report.results.tasks_failed / report.results.tasks_submitted) * 100
       : 0;
 
-  const ts = new Date(report.timestamp);
-  const timestampStr = `${ts.toLocaleDateString()}, ${ts.toLocaleTimeString()}`;
+  const timestampStr = formatTimestamp(report.timestamp);
 
   return (
     <Card className="bg-zinc-900/60 border-zinc-800/80 text-zinc-100 shadow-lg shadow-black/20 h-full">
@@ -195,7 +183,7 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
               <span className="text-[11px] font-medium">Duration</span>
             </div>
             <div className="text-lg font-bold text-zinc-100 tabular-nums">
-              {formatDuration(report.results.duration_seconds)}
+              {formatDurationSec(report.results.duration_seconds)}
             </div>
             <div className="text-[11px] text-zinc-500">total runtime</div>
           </div>
@@ -206,9 +194,9 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
               <span className="text-[11px] font-medium">Throughput</span>
             </div>
             <div className="text-lg font-bold text-blue-400 tabular-nums">
-              {report.results.throughput_rps.toFixed(2)}
+              {formatThroughput(report.results.throughput_rps).value}
             </div>
-            <div className="text-[11px] text-zinc-500">req/s</div>
+            <div className="text-[11px] text-zinc-500">{formatThroughput(report.results.throughput_rps).unit}</div>
           </div>
 
           <div className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-3">
@@ -225,7 +213,7 @@ const CapacityReportInner = React.memo(function CapacityReportInner() {
                     : "text-emerald-400"
               }`}
             >
-              {errorRate.toFixed(1)}%
+              {formatPercent(errorRate)}
             </div>
             <div className="text-[11px] text-zinc-500">
               ({report.results.tasks_failed} failed)

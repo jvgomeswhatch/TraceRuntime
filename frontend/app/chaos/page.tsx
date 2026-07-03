@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatDurationSec } from "@/lib/format";
 import {
   Zap,
   RefreshCw,
@@ -50,11 +51,7 @@ interface TriggerState {
   report_id?: string;
 }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
+const formatDuration = formatDurationSec;
 
 function summaryBadgeClass(summary: ReportSummary): string {
   if (summary.failed > 0)

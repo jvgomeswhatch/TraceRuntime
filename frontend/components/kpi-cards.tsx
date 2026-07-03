@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import type { RuntimeMetrics } from "@/lib/types";
 import { useSSEContext } from "@/components/providers/sse-provider";
+import { formatDurationSec, formatPercent } from "@/lib/format";
 
 interface KpiData {
   id: string;
@@ -109,10 +110,10 @@ export const KpiCards = React.memo(function KpiCards() {
       {
         id: "p95-latency",
         label: "P95 Latency",
-        value: metrics ? p95.toFixed(2) : "—",
-        unit: "s",
+        value: metrics ? formatDurationSec(p95) : "—",
+        unit: "",
         trend: p95 > 3 ? "up" : p95 > 0 ? "down" : "flat",
-        trendLabel: metrics ? `avg: ${avgLatency.toFixed(1)}s` : "no data",
+        trendLabel: metrics ? `avg: ${formatDurationSec(avgLatency)}` : "no data",
         sparkData: [],
         color: "#fbbf24",
         trendColor:
@@ -122,7 +123,7 @@ export const KpiCards = React.memo(function KpiCards() {
       {
         id: "error-rate",
         label: "Error Rate",
-        value: metrics ? `${errorRate.toFixed(1)}%` : "—",
+        value: metrics ? formatPercent(errorRate) : "—",
         unit: "",
         trend: errorRate > 5 ? "up" : errorRate > 0 ? "flat" : "down",
         trendLabel: metrics ? `${metrics.total_failed} failed` : "no data",

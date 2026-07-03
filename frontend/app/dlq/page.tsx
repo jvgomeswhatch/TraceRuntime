@@ -63,8 +63,13 @@ export default function DLQPage() {
 
     const interval = setInterval(async () => {
       try {
-        const count = await fetchStatsApi();
-        if (!cancelled) setApproxCount(count);
+        const [count, result] = await Promise.all([fetchStatsApi(), fetchMessagesApi()]);
+        if (!cancelled) {
+          setApproxCount(count);
+          if (result.messages.length > 0) {
+            setMessages(result.messages);
+          }
+        }
       } catch {
         /* ignore */
       }

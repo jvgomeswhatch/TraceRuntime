@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { formatDurationMs } from "@/lib/format";
 import {
   Zap,
   Radio,
@@ -187,9 +188,7 @@ const TaskEventItem = React.memo(function TaskEventItem({
 
         {ev.inference_duration_ms != null && ev.inference_duration_ms > 0 && (
           <span className="text-xs text-zinc-500 tabular-nums">
-            {ev.inference_duration_ms < 1000
-              ? `${ev.inference_duration_ms}ms`
-              : `${(ev.inference_duration_ms / 1000).toFixed(1)}s`}
+            {formatDurationMs(ev.inference_duration_ms)}
           </span>
         )}
 
