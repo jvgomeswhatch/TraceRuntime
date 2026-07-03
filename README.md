@@ -128,6 +128,7 @@ make build       # Build container images only
 make rebuild     # Build + start all services
 make down        # Stop everything
 make restart     # down + up
+make clean       # Wipe all data (DB, SQS, S3, results) — keeps containers running
 make reset       # Destroy volumes + bootstrap from scratch
 make health      # Check health of all services
 make ps          # Show running containers
@@ -168,11 +169,18 @@ Results are saved to `results/` and displayed in the "Last Benchmark" dashboard 
 
 ### Chaos Testing
 
+Chaos testing requires a dedicated environment with `CHAOS_ENABLED=true` and a secure token. Use `make chaos-up` to start services in chaos mode before running scenarios.
+
 ```bash
+make chaos-up                        # Start all services in chaos mode (generates token, enables chaos on AI Runtime)
 make chaos                           # Run all chaos scenarios
 make chaos SCENARIO=worker-crash     # Specific scenario
 make chaos LIST=true                 # List available scenarios
+make chaos-down                      # Stop chaos environment
+make chaos-reset                     # Destroy volumes + bootstrap from scratch
 ```
+
+> **Do not run `make chaos` against services started with `make up`.** The AI Runtime must be started with `CHAOS_ENABLED=true` and a valid `INTERNAL_TOKEN` (32+ chars) for chaos endpoints to be available.
 
 ## Services
 

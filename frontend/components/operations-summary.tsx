@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { timeAgo as formatTimeAgo } from "@/lib/format";
 import {
   AlertTriangle,
   AlertCircle,
@@ -17,17 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSSEContext } from "@/components/providers/sse-provider";
 import type { HealingEvent } from "@/lib/types";
 
-function timeAgo(dateStr: string): string {
-  const seconds = Math.floor(
-    (Date.now() - new Date(dateStr).getTime()) / 1000
-  );
-  if (seconds < 0) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
-}
+const timeAgo = formatTimeAgo;
 
 function displayEventType(eventType: string): string {
   const map: Record<string, string> = {

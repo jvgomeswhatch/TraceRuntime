@@ -79,8 +79,29 @@ reset:
 	docker network rm traceruntime 2>/dev/null || true
 	$(MAKE) bootstrap
 
+# clean wipes all data (DB, SQS, S3, results) without touching containers or infra
+clean:
+	@echo "Cleaning PostgreSQL..."
+	@docker exec traceruntime-postgres-1 psql -U traceruntime -d traceruntime -c \
+		"TRUNCATE tasks, healing_events, worker_heartbeats, chaos_runs CASCADE" 2>/dev/null \
+		&& echo "  tables truncated" || echo "  SKIP (postgres not running)"
+	@echo "Purging SQS queues..."
+	@docker exec traceruntime-localstack-1 awslocal sqs purge-queue \
+		--queue-url http://localstack:4566/000000000000/traceruntime-tasks 2>/dev/null \
+		&& echo "  tasks queue purged" || echo "  SKIP (localstack not running)"
+	@docker exec traceruntime-localstack-1 awslocal sqs purge-queue \
+		--queue-url http://localstack:4566/000000000000/traceruntime-tasks-dlq 2>/dev/null \
+		&& echo "  DLQ purged" || echo "  SKIP"
+	@echo "Clearing S3 bucket..."
+	@docker exec traceruntime-localstack-1 awslocal s3 rm s3://traceruntime-outputs --recursive 2>/dev/null \
+		&& echo "  bucket cleared" || echo "  SKIP (localstack not running)"
+	@echo "Removing local results..."
+	@rm -f results/loadtest-*.json results/chaos-suite-*.json
+	@rm -f results/chaos-requests/*.json
+	@echo "Clean complete."
+
 # ── Operations ─────────────────────────────────────────────────────────────────
-.PHONY: ps logs health queue-stats
+.PHONY: ps logs health queue-stats clean
 
 ps:
 	docker compose --profile no-ai ps

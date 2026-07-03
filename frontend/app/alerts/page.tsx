@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Bell, Inbox, Search } from "lucide-react";
+import { timeAgo as formatTimeAgo, formatDurationSec } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 
@@ -46,18 +48,11 @@ function statusBadgeClass(status: string): string {
   return "text-emerald-400 border-emerald-500/40 bg-emerald-500/10";
 }
 
-function timeAgo(iso: string): string {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return `${Math.floor(diff)}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
+const timeAgo = formatTimeAgo;
 
 function formatResolution(seconds: number): string {
   if (seconds <= 0) return "---";
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+  return formatDurationSec(seconds);
 }
 
 async function fetchAlertsApi(
@@ -171,10 +166,10 @@ export default function AlertsPage() {
             Operational alerts and healing events
           </p>
         </div>
-        {alerts.length > 0 && (
+        {stats && stats.active > 0 && (
           <div className="flex items-center gap-2 text-xs font-medium text-amber-400 border border-amber-500/30 bg-amber-500/5 rounded-lg px-3 py-1.5">
             <Bell className="size-3.5" />
-            <span className="tabular-nums">{alerts.length}</span> alerts
+            <span className="tabular-nums">{stats.active}</span> active
           </div>
         )}
       </header>
@@ -298,8 +293,26 @@ export default function AlertsPage() {
                       {alert.severity}
                     </Badge>
                   </td>
-                  <td className="py-2.5 px-3 text-xs text-zinc-300 font-mono">
-                    {alert.event_type}
+                  <td className="py-2.5 px-3">
+                    <span className="text-xs text-zinc-300 font-mono">{alert.event_type}</span>
+                    {(alert.details.trace_id != null || alert.details.task_id != null) && (
+                      <div className="mt-1 flex flex-col gap-0.5">
+                        {alert.details.trace_id != null && (
+                          <Link
+                            href={`/traces/${String(alert.details.trace_id)}`}
+                            className="text-[10px] font-mono text-blue-400 hover:text-blue-300 truncate max-w-[200px] block"
+                            title={String(alert.details.trace_id)}
+                          >
+                            trace: {String(alert.details.trace_id)}
+                          </Link>
+                        )}
+                        {alert.details.task_id != null && (
+                          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[200px] block" title={String(alert.details.task_id)}>
+                            task: {String(alert.details.task_id)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 text-xs text-zinc-500">
                     {alert.worker_id ? (

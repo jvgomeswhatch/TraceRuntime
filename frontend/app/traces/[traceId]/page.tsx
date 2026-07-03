@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { formatDurationNanos, formatTimestamp } from "@/lib/format";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -91,12 +92,7 @@ function spanStatusBadge(status: string) {
   }
 }
 
-function formatDuration(nanos: number): string {
-  const ms = nanos / 1_000_000;
-  if (ms < 1) return `${(nanos / 1000).toFixed(0)}µs`;
-  if (ms < 1000) return `${ms.toFixed(1)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-}
+const formatDuration = formatDurationNanos;
 
 interface SpanRow extends TraceSpan {
   depth: number;
@@ -264,17 +260,17 @@ export default function TraceDetailPage() {
   const servicesArr = data.services ?? [];
   const totalDurationNano = (() => {
     if (spanRows.length > 0) {
-      return (
+      const raw =
         Math.max(...spansArr.map((s) => s.start_time_unix_nano + s.duration_nano)) -
-        Math.min(...spansArr.map((s) => s.start_time_unix_nano))
-      );
+        Math.min(...spansArr.map((s) => s.start_time_unix_nano));
+      return Math.max(raw, 0);
     }
     if (task?.processing_started_at && task?.completed_at) {
-      return (
+      const raw =
         (new Date(task.completed_at).getTime() -
           new Date(task.processing_started_at).getTime()) *
-        1_000_000
-      );
+        1_000_000;
+      return Math.max(raw, 0);
     }
     return null;
   })();
@@ -524,18 +520,18 @@ export default function TraceDetailPage() {
               </div>
               <div className="rounded-lg bg-zinc-800/30 p-3">
                 <span className="text-[11px] text-zinc-500 block mb-1">Created</span>
-                <p className="text-sm font-medium text-zinc-200 tabular-nums">{new Date(task.created_at).toLocaleString()}</p>
+                <p className="text-sm font-medium text-zinc-200 tabular-nums">{formatTimestamp(task.created_at)}</p>
               </div>
               {task.processing_started_at && (
                 <div className="rounded-lg bg-zinc-800/30 p-3">
                   <span className="text-[11px] text-zinc-500 block mb-1">Processing Started</span>
-                  <p className="text-sm font-medium text-zinc-200 tabular-nums">{new Date(task.processing_started_at).toLocaleTimeString()}</p>
+                  <p className="text-sm font-medium text-zinc-200 tabular-nums">{formatTimestamp(task.processing_started_at)}</p>
                 </div>
               )}
               {task.completed_at && (
                 <div className="rounded-lg bg-zinc-800/30 p-3">
                   <span className="text-[11px] text-zinc-500 block mb-1">Completed</span>
-                  <p className="text-sm font-medium text-zinc-200 tabular-nums">{new Date(task.completed_at).toLocaleTimeString()}</p>
+                  <p className="text-sm font-medium text-zinc-200 tabular-nums">{formatTimestamp(task.completed_at)}</p>
                 </div>
               )}
             </div>
